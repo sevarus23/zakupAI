@@ -1,0 +1,8 @@
+openpyxl==3.1.5
+meilisearch==0.34.1
+psycopg2-binary==2.9.10
+
+docling==2.26.0
+docling-core==2.27.0
+docling-ibm-models==3.4.1
+docling-parse==3.4.0
