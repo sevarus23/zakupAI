@@ -182,3 +182,20 @@ class SupplierImportResult(BaseModel):
     suppliers_created: int
     suppliers_matched: int
     contacts_created: int
+
+
+class LotParameterRead(BaseModel):
+    name: str
+    value: str
+    units: str
+
+
+class LotRead(BaseModel):
+    id: int
+    name: str
+    parameters: List[LotParameterRead] = Field(default_factory=list)
+
+
+class LotsResponse(BaseModel):
+    status: str
+    lots: List[LotRead] = Field(default_factory=list)

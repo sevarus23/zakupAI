@@ -326,6 +326,7 @@ function App() {
   const [emailDraft, setEmailDraft] = useState(null);
   const [purchaseDetailsExpanded, setPurchaseDetailsExpanded] = useState(false);
   const [selectedRows, setSelectedRows] = useState(new Set());
+  const [lotsState, setLotsState] = useState({ status: 'queued', lots: [] });
 
   useEffect(() => {
     if (token) {
@@ -422,6 +423,10 @@ function App() {
       setEmailDraft(null);
       setLlmQueries(null);
       setPurchaseDetailsExpanded(false);
+      setLotsState({ status: 'queued', lots: [] });
+      apiWithToken(`/purchases/${selectedId}/lots`)
+        .then((data) => setLotsState(data))
+        .catch((err) => setError(err.message));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
@@ -535,6 +540,7 @@ function App() {
 
   const selectedPurchase = purchases.find((p) => p.id === selectedId);
   const purchaseHasLongText = (selectedPurchase?.terms_text || '').length > 420;
+  const lotsReady = lotsState.lots && lotsState.lots.length > 0;
   const allSelectableRowIds = useMemo(() => {
     const ids = [];
     for (const s of suppliers) {
@@ -686,6 +692,42 @@ function App() {
                   {purchaseDetailsExpanded ? 'Свернуть' : 'Показать полностью'}
                 </button>
               )}
+              <div style={{ marginTop: 16 }}>
+                <h4 style={{ marginBottom: 8 }}>Лоты</h4>
+                {!lotsReady && lotsState.status !== 'completed' && (
+                  <p className="muted" style={{ margin: 0 }}>
+                    Извлекаем лоты из технического задания…
+                  </p>
+                )}
+                {!lotsReady && lotsState.status === 'completed' && (
+                  <p className="muted" style={{ margin: 0 }}>
+                    Лоты пока не найдены.
+                  </p>
+                )}
+                {lotsReady && (
+                  <div className="stack" style={{ flexDirection: 'column', gap: 12 }}>
+                    {lotsState.lots.map((lot) => (
+                      <div key={lot.id} className="card" style={{ background: '#f8fafc' }}>
+                        <div style={{ fontWeight: 600 }}>{lot.name}</div>
+                        {lot.parameters.length > 0 ? (
+                          <ul style={{ margin: '8px 0 0 16px' }}>
+                            {lot.parameters.map((param, idx) => (
+                              <li key={`${lot.id}-${idx}`}>
+                                {param.name}: {param.value}
+                                {param.units ? ` ${param.units}` : ''}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className="muted" style={{ marginTop: 6 }}>
+                            Параметры не указаны.
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="card">
