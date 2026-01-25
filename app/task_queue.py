@@ -100,6 +100,40 @@ class TaskQueue:
             session.refresh(task)
             return task
 
+    def run_lots_extraction_now(self, purchase_id: int, terms_text: str) -> LLMTask:
+        payload = {"terms_text": terms_text or ""}
+        with Session(engine) as session:
+            task = LLMTask(
+                purchase_id=purchase_id,
+                task_type="lots_extraction",
+                input_text=json.dumps(payload, ensure_ascii=False),
+                status="in_progress",
+            )
+            session.add(task)
+            session.commit()
+            session.refresh(task)
+            task_id = task.id
+
+        if task_id is None:
+            raise RuntimeError("Failed to create lots extraction task")
+
+        try:
+            self._process_task(task_id)
+        except Exception as exc:
+            print(f"[lots_extraction] failed for purchase {purchase_id}: {exc}")
+            with Session(engine) as session:
+                errored = session.get(LLMTask, task_id)
+                if errored:
+                    errored.status = "failed"
+                    errored.output_text = json.dumps({"error": str(exc)}, ensure_ascii=False)
+                    session.add(errored)
+                    session.commit()
+        with Session(engine) as session:
+            refreshed = session.get(LLMTask, task_id)
+            if not refreshed:
+                raise RuntimeError("Lots extraction task disappeared")
+            return refreshed
+
     def _run(self) -> None:
         while not self._stop_event.is_set():
             with Session(engine) as session:
@@ -160,6 +194,7 @@ class TaskQueue:
             elif task.task_type == "lots_extraction":
                 payload = self._load_payload(task.input_text)
                 terms_text = payload.get("terms_text", "")
+                print(f"[lots_extraction] start task={task.id} purchase={task.purchase_id}")
                 if not terms_text:
                     task.output_text = json.dumps({"lots": []}, ensure_ascii=False)
                     task.status = "completed"
@@ -172,6 +207,7 @@ class TaskQueue:
                 task.status = "completed"
                 if task.purchase_id:
                     self._sync_lots(session, task.purchase_id, lots_payload)
+                print(f"[lots_extraction] completed task={task.id} purchase={task.purchase_id}")
             else:
                 task.status = "completed"
 

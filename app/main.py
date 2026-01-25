@@ -144,9 +144,12 @@ def create_purchase(payload: PurchaseCreate, session=Depends(get_session), curre
     session.add(purchase)
     session.commit()
     session.refresh(purchase)
-    task_queue.enqueue_supplier_search_task(purchase.id, purchase.terms_text or "")
     if purchase.terms_text:
-        task_queue.enqueue_lots_extraction_task(purchase.id, purchase.terms_text)
+        try:
+            task_queue.run_lots_extraction_now(purchase.id, purchase.terms_text)
+        except Exception as exc:
+            print(f"[lots_extraction] immediate run failed: {exc}")
+    task_queue.enqueue_supplier_search_task(purchase.id, purchase.terms_text or "")
     return purchase
 
 
@@ -193,9 +196,12 @@ def update_purchase(
     session.refresh(purchase)
 
     if payload.terms_text is not None and payload.terms_text != original_terms:
-        task_queue.enqueue_supplier_search_task(purchase.id, purchase.terms_text or "")
         if purchase.terms_text:
-            task_queue.enqueue_lots_extraction_task(purchase.id, purchase.terms_text)
+            try:
+                task_queue.run_lots_extraction_now(purchase.id, purchase.terms_text)
+            except Exception as exc:
+                print(f"[lots_extraction] immediate run failed: {exc}")
+        task_queue.enqueue_supplier_search_task(purchase.id, purchase.terms_text or "")
     return purchase
 
 
@@ -237,8 +243,14 @@ def get_purchase_lots(
         .order_by(LLMTask.created_at.desc())
     ).first()
 
-    if not task and purchase.terms_text:
-        task = task_queue.enqueue_lots_extraction_task(purchase_id, purchase.terms_text)
+    if (not task or task.status in ("queued", "in_progress")) and purchase.terms_text and not lots:
+        try:
+            task = task_queue.run_lots_extraction_now(purchase_id, purchase.terms_text)
+        except Exception as exc:
+            print(f"[lots_extraction] on-demand run failed: {exc}")
+            if not task:
+                task = task_queue.enqueue_lots_extraction_task(purchase_id, purchase.terms_text)
+        lots = _load_lots(session, purchase_id)
 
     status_value = task.status if task else ("completed" if lots else "queued")
     return LotsResponse(status=status_value, lots=lots)

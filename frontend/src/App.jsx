@@ -424,9 +424,25 @@ function App() {
       setLlmQueries(null);
       setPurchaseDetailsExpanded(false);
       setLotsState({ status: 'queued', lots: [] });
-      apiWithToken(`/purchases/${selectedId}/lots`)
-        .then((data) => setLotsState(data))
-        .catch((err) => setError(err.message));
+
+      let isMounted = true;
+      const fetchLots = async () => {
+        try {
+          const data = await apiWithToken(`/purchases/${selectedId}/lots`);
+          if (!isMounted) return;
+          setLotsState(data);
+          if (data.status === 'queued' || data.status === 'in_progress') {
+            setTimeout(fetchLots, 3000);
+          }
+        } catch (err) {
+          if (isMounted) setError(err.message);
+        }
+      };
+
+      fetchLots();
+      return () => {
+        isMounted = false;
+      };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
@@ -694,7 +710,7 @@ function App() {
               )}
               <div style={{ marginTop: 16 }}>
                 <h4 style={{ marginBottom: 8 }}>Лоты</h4>
-                {!lotsReady && lotsState.status !== 'completed' && (
+                {!lotsReady && lotsState.status !== 'completed' && lotsState.status !== 'failed' && (
                   <p className="muted" style={{ margin: 0 }}>
                     Извлекаем лоты из технического задания…
                   </p>
@@ -702,6 +718,11 @@ function App() {
                 {!lotsReady && lotsState.status === 'completed' && (
                   <p className="muted" style={{ margin: 0 }}>
                     Лоты пока не найдены.
+                  </p>
+                )}
+                {!lotsReady && lotsState.status === 'failed' && (
+                  <p className="muted" style={{ margin: 0 }}>
+                    Не удалось извлечь лоты. Проверьте настройки OpenAI и повторите попытку.
                   </p>
                 )}
                 {lotsReady && (
