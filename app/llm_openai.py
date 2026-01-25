@@ -67,14 +67,15 @@ def extract_lots(terms_text: str) -> Dict[str, Any]:
     client = OpenAI(api_key=api_key, base_url=base_url)
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-    response = client.responses.create(
+    response = client.chat.completions.create(
         model=model,
-        input=_build_lots_prompt(terms_text),
+        messages=_build_lots_prompt(terms_text),
         response_format={"type": "json_schema", "json_schema": LOTS_SCHEMA},
         temperature=0.2,
+        max_tokens=2000,
     )
 
-    output_text = response.output_text
+    output_text = response.choices[0].message.content if response.choices else None
     if not output_text:
         raise RuntimeError("Empty response from OpenAI")
 
