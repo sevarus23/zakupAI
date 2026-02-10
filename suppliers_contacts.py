@@ -210,7 +210,6 @@ def summarize_tz_for_single_supplier(tz_text: str) -> Dict[str, Any]:
             },
             {"role": "user", "content": prompt},
         ],
-        temperature=0.2,
         max_completion_tokens=2500,
     )
 
@@ -289,7 +288,6 @@ def transform_answer_to_json(task: str, received_answer: str) -> Dict[str, Any]:
                 {"role": "system", "content": "You are a JSON transformation specialist."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.1,
             max_completion_tokens=2000
         )
         
@@ -758,7 +756,6 @@ def doc_validation(technical_spec: str, doc) -> Tuple[bool, str]:
                 },
                 {"role": "user", "content": task},
             ],
-            temperature=0.0,
             max_completion_tokens=300,
         )
 
@@ -827,7 +824,6 @@ def company_validation(
                 },
                 {"role": "user", "content": task},
             ],
-            temperature=0.0,
             max_completion_tokens=400,
         )
 

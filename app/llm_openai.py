@@ -109,7 +109,6 @@ def extract_lots(terms_text: str) -> Dict[str, Any]:
         model=model,
         messages=_build_lots_prompt(terms_text),
         response_format={"type": "json_schema", "json_schema": LOTS_SCHEMA},
-        temperature=0.2,
         max_completion_tokens=2000,
     )
 
@@ -151,7 +150,6 @@ def extract_bid_lots(terms_text: str) -> Dict[str, Any]:
         model=model,
         messages=_build_bid_lots_prompt(terms_text),
         response_format={"type": "json_schema", "json_schema": LOTS_WITH_PRICE_SCHEMA},
-        temperature=0.2,
         max_completion_tokens=2000,
     )
 
