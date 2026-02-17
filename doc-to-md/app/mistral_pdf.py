@@ -1,3 +1,4 @@
+import base64
 import os
 from pathlib import Path
 from typing import Any
@@ -52,19 +53,29 @@ def run_pipeline(file_path: str, update_status, options, page_range):
         raise MistralOcrError("PDF file does not exist")
 
     page_start, page_end = page_range
-    page_range_value = f"{page_start}-{page_end}"
+    pages = list(range(page_start, page_end + 1))
 
-    headers = {"Authorization": f"Bearer {api_key}"}
-    data = {
-        "model": model,
-        "page_range": page_range_value,
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
     }
 
-    with path.open("rb") as fd:
-        files = {
-            "file": (path.name, fd, "application/pdf"),
-        }
-        response = requests.post(endpoint, headers=headers, data=data, files=files, timeout=180)
+    pdf_base64 = base64.b64encode(path.read_bytes()).decode("ascii")
+    payload: dict[str, Any] = {
+        "model": model,
+        "document": {
+            "type": "document_url",
+            "document_url": f"data:application/pdf;base64,{pdf_base64}",
+        },
+        "include_image_base64": False,
+    }
+    if pages:
+        payload["pages"] = pages
+
+    print(
+        f"[mistral-ocr] request model={model} pages={page_start}-{page_end} payload_keys={list(payload.keys())}"
+    )
+    response = requests.post(endpoint, headers=headers, json=payload, timeout=180)
 
     print(f"[mistral-ocr] status_code={response.status_code}")
     print(f"[mistral-ocr] raw_response={response.text}")
