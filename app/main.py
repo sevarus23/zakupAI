@@ -157,7 +157,6 @@ def create_purchase(payload: PurchaseCreate, session=Depends(get_session), curre
             task_queue.run_lots_extraction_now(purchase.id, purchase.terms_text)
         except Exception as exc:
             print(f"[lots_extraction] immediate run failed: {exc}")
-    task_queue.enqueue_supplier_search_task(purchase.id, purchase.terms_text or "")
     return purchase
 
 
@@ -209,7 +208,6 @@ def update_purchase(
                 task_queue.run_lots_extraction_now(purchase.id, purchase.terms_text)
             except Exception as exc:
                 print(f"[lots_extraction] immediate run failed: {exc}")
-        task_queue.enqueue_supplier_search_task(purchase.id, purchase.terms_text or "")
     return purchase
 
 
@@ -678,6 +676,33 @@ def search_suppliers(
             queue_length=state.queue_length,
             estimated_complete_time=state.estimated_complete_time,
         )
+
+    return SupplierSearchResponse(
+        task_id=state.task_id,
+        status=state.status,
+        queries=state.queries,
+        note=state.note or "Поиск поставщиков выполняется",
+        tech_task_excerpt=state.tech_task_excerpt,
+        search_output=state.search_output,
+        processed_contacts=state.processed_contacts,
+        queue_length=state.queue_length,
+        estimated_complete_time=state.estimated_complete_time,
+    )
+
+
+@app.get("/purchases/{purchase_id}/suppliers/search", response_model=SupplierSearchResponse | None)
+def get_supplier_search_status(
+    purchase_id: int,
+    session=Depends(get_session),
+    current_user: User = Depends(auth.get_current_user),
+) -> SupplierSearchResponse | None:
+    purchase = session.get(Purchase, purchase_id)
+    if not purchase or purchase.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase not found")
+
+    state = get_supplier_search_state(purchase_id)
+    if not state:
+        return None
 
     return SupplierSearchResponse(
         task_id=state.task_id,

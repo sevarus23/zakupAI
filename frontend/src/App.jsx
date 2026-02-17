@@ -334,6 +334,7 @@ function App() {
   const [bids, setBids] = useState([]);
   const [pendingBids, setPendingBids] = useState([]);
   const [showPurchaseProcessingCard, setShowPurchaseProcessingCard] = useState(false);
+  const [searchEtaByTask, setSearchEtaByTask] = useState({});
   const [showBidModal, setShowBidModal] = useState(false);
   const [bidForm, setBidForm] = useState({
     supplier_id: '',
@@ -358,12 +359,11 @@ function App() {
 
     const preloadSearchState = async () => {
       try {
-        const selectedPurchase = purchases.find((p) => p.id === selectedId);
-        const state = await apiWithToken(`/purchases/${selectedId}/suppliers/search`, {
-          method: 'POST',
-          body: { terms_text: selectedPurchase?.terms_text || '', hints: [] },
-        });
-        setLlmQueries(state);
+        const state = await apiWithToken(`/purchases/${selectedId}/suppliers/search`);
+        if (state?.task_id && state?.estimated_complete_time) {
+          setSearchEtaByTask((prev) => (prev[state.task_id] ? prev : { ...prev, [state.task_id]: state.estimated_complete_time }));
+        }
+        setLlmQueries(state || null);
       } catch (err) {
         console.error('Не удалось загрузить состояние поиска', err);
       }
@@ -371,7 +371,7 @@ function App() {
 
     preloadSearchState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, selectedId, purchases]);
+  }, [token, selectedId]);
 
   const apiWithToken = (path, options) => apiFetch(path, { ...options, token });
 
@@ -434,6 +434,44 @@ function App() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runSupplierSearch = async () => {
+    if (!selectedId) return;
+    setBusy(true);
+    setError('');
+    try {
+      const selectedPurchase = purchases.find((p) => p.id === selectedId);
+      const state = await apiWithToken(`/purchases/${selectedId}/suppliers/search`, {
+        method: 'POST',
+        body: { terms_text: selectedPurchase?.terms_text || '', hints: [] },
+      });
+      if (state?.task_id && state?.estimated_complete_time) {
+        setSearchEtaByTask((prev) => (prev[state.task_id] ? prev : { ...prev, [state.task_id]: state.estimated_complete_time }));
+      }
+      setLlmQueries(state);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const refreshSupplierSearch = async () => {
+    if (!selectedId) return;
+    setBusy(true);
+    setError('');
+    try {
+      const state = await apiWithToken(`/purchases/${selectedId}/suppliers/search`);
+      if (state?.task_id && state?.estimated_complete_time) {
+        setSearchEtaByTask((prev) => (prev[state.task_id] ? prev : { ...prev, [state.task_id]: state.estimated_complete_time }));
+      }
+      setLlmQueries(state || null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -563,6 +601,7 @@ function App() {
     setSuppliers([]);
     setContactsBySupplier({});
     setBids([]);
+    setSearchEtaByTask({});
     setSelectedId(null);
   };
 
@@ -1195,16 +1234,26 @@ function App() {
             )}
 
             <div className="card">
-              <h3 style={{ marginTop: 0 }}>Автопоиск поставщиков</h3>
+              <div className="stack" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                <h3 style={{ marginTop: 0, marginBottom: 0 }}>Поиск поставщиков</h3>
+                <div className="stack" style={{ alignItems: 'center', gap: 8 }}>
+                  <button className="primary" onClick={runSupplierSearch} disabled={busy}>
+                    Запустить поиск
+                  </button>
+                  <button className="secondary" onClick={refreshSupplierSearch} disabled={busy}>
+                    Обновить статус
+                  </button>
+                </div>
+              </div>
 
               {llmQueries ? (
-                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: 14, borderRadius: 10 }}>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: 14, borderRadius: 10, marginTop: 12 }}>
                   <div className="tag" style={{ marginBottom: 8 }}>
                     Задача #{llmQueries.task_id}: {llmQueries.status}
                   </div>
-                  {llmQueries.estimated_complete_time && (
+                  {(searchEtaByTask[llmQueries.task_id] || llmQueries.estimated_complete_time) && (
                     <p className="muted" style={{ marginTop: 0 }}>
-                      Поиск будет завершен до {formatEstimatedCompletion(llmQueries.estimated_complete_time)}
+                      Поиск будет завершен до {formatEstimatedCompletion(searchEtaByTask[llmQueries.task_id] || llmQueries.estimated_complete_time)}
                     </p>
                   )}
                   {llmQueries.tech_task_excerpt && (
@@ -1222,7 +1271,9 @@ function App() {
                   <p className="muted">{llmQueries.note}</p>
                 </div>
               ) : (
-                <p className="muted">Поиск поставщиков запускается автоматически на основе описания закупки.</p>
+                <p className="muted" style={{ marginTop: 12 }}>
+                  Поиск поставщиков запускается вручную кнопкой «Запустить поиск».
+                </p>
               )}
             </div>
 
