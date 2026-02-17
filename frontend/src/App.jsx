@@ -332,6 +332,8 @@ function App() {
   const [showCreateLotModal, setShowCreateLotModal] = useState(false);
   const [newLotForm, setNewLotForm] = useState({ name: '', parameters: [{ name: '', value: '', units: '' }] });
   const [bids, setBids] = useState([]);
+  const [pendingBids, setPendingBids] = useState([]);
+  const [showPurchaseProcessingCard, setShowPurchaseProcessingCard] = useState(false);
   const [showBidModal, setShowBidModal] = useState(false);
   const [bidForm, setBidForm] = useState({
     supplier_id: '',
@@ -473,6 +475,19 @@ function App() {
   const createBid = async (evt) => {
     evt.preventDefault();
     if (!selectedId) return;
+    const purchaseId = selectedId;
+    const tempId = `pending-${Date.now()}`;
+    const pendingSupplierName = bidForm.supplier_name?.trim() || 'Поставщик не указан';
+    const pendingSupplierContact = bidForm.supplier_contact?.trim() || '';
+    setShowBidModal(false);
+    setPendingBids((prev) => [
+      {
+        id: tempId,
+        supplier_name: pendingSupplierName,
+        supplier_contact: pendingSupplierContact,
+      },
+      ...prev,
+    ]);
     setBusy(true);
     setError('');
     setMessage('');
@@ -491,18 +506,18 @@ function App() {
         supplier_name: bidForm.supplier_name?.trim() || null,
         supplier_contact: bidForm.supplier_contact?.trim() || null,
       };
-      await apiWithToken(`/purchases/${selectedId}/bids`, {
+      await apiWithToken(`/purchases/${purchaseId}/bids`, {
         method: 'POST',
         body: payload,
       });
       setBidForm({ supplier_id: '', supplier_name: '', supplier_contact: '', bid_text: '' });
       setBidFile(null);
       setMessage('Предложение добавлено');
-      await loadBids(selectedId);
-      setShowBidModal(false);
+      await loadBids(purchaseId);
     } catch (err) {
       setError(err.message);
     } finally {
+      setPendingBids((prev) => prev.filter((item) => item.id !== tempId));
       setBusy(false);
     }
   };
@@ -553,22 +568,30 @@ function App() {
 
   const createPurchase = async (evt) => {
     evt.preventDefault();
+    const purchasePayload = {
+      custom_name: purchaseForm.custom_name,
+      terms_text: purchaseForm.terms_text,
+    };
+    const filePayload = purchaseFile;
+    setShowPurchaseModal(false);
+    setShowPurchaseProcessingCard(true);
     setBusy(true);
     setError('');
     setMessage('');
     try {
-      let termsText = purchaseForm.terms_text?.trim() || '';
-      if (purchaseFile) {
-        termsText = await convertTechTaskFile(purchaseFile);
+      let termsText = purchasePayload.terms_text?.trim() || '';
+      if (filePayload) {
+        termsText = await convertTechTaskFile(filePayload);
       }
       if (!termsText) {
         setError('Добавьте описание или загрузите файл ТЗ.');
+        setShowPurchaseProcessingCard(false);
         return;
       }
       await apiWithToken('/purchases', {
         method: 'POST',
         body: {
-          custom_name: purchaseForm.custom_name,
+          custom_name: purchasePayload.custom_name,
           terms_text: termsText,
         },
       });
@@ -576,9 +599,10 @@ function App() {
       setPurchaseFile(null);
       setMessage('Закупка создана');
       await loadPurchases();
-      setShowPurchaseModal(false);
+      setShowPurchaseProcessingCard(false);
     } catch (err) {
       setError(err.message);
+      setShowPurchaseProcessingCard(false);
     } finally {
       setBusy(false);
     }
@@ -747,6 +771,14 @@ function App() {
           {message && <div className="alert" style={{ background: '#ecfdf3', color: '#166534' }}>{message}</div>}
           {error && <div className="alert">{error}</div>}
           <div className="list">
+            {showPurchaseProcessingCard && (
+              <div className="card" style={{ border: '1.5px dashed #cbd5e1' }}>
+                <h3 style={{ margin: '0 0 6px 0' }}>Новая закупка создаётся…</h3>
+                <p className="muted" style={{ marginBottom: 0 }}>
+                  Документ загружается и запускается извлечение лотов из ТЗ.
+                </p>
+              </div>
+            )}
             {sortedPurchases.map((purchase) => (
               <PurchaseCard
                 key={purchase.id}
@@ -1239,6 +1271,21 @@ function App() {
                 </button>
               </div>
               <div className="list" style={{ marginTop: 12 }}>
+                {pendingBids.map((pendingBid) => (
+                  <div key={pendingBid.id} className="card bid-card" style={{ marginBottom: 0, opacity: 0.8 }}>
+                    <div className="bid-card__header">
+                      <div>
+                        <div className="bid-card__title">Предложение</div>
+                        <div className="bid-card__supplier">{pendingBid.supplier_name}</div>
+                        {pendingBid.supplier_contact && <div className="muted">Контакт: {pendingBid.supplier_contact}</div>}
+                      </div>
+                      <div className="tag">В обработке</div>
+                    </div>
+                    <p className="muted" style={{ marginBottom: 0 }}>
+                      Предложение отправлено. Конвертация файла и извлечение лотов/цен уже запущены…
+                    </p>
+                  </div>
+                ))}
                 {bids.map((bid) => (
                   <div key={bid.id} className="card bid-card" style={{ marginBottom: 0 }}>
                     <div className="bid-card__header">
