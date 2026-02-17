@@ -1,4 +1,3 @@
-import os
 import shutil
 import subprocess
 from html import unescape
@@ -8,6 +7,8 @@ from typing import Callable, Tuple
 import pypdfium2 as pdfium
 from bs4 import BeautifulSoup, NavigableString, Tag
 from striprtf.striprtf import rtf_to_text
+
+from .mistral_pdf import run_pipeline as run_pdf_pipeline
 
 
 DEFAULT_PAGE_RANGE = (1, 20)
@@ -182,8 +183,6 @@ def convert_to_markdown(path: Path, update_status: Callable[[str], None] | None 
     if suffix == ".pdf":
         update_status("PDF conversion started.")
         page_range = _build_page_range(path)
-        from .docling_simple_pdf import run_pipeline as run_pdf_pipeline
-
         return run_pdf_pipeline(str(path), update_status, {}, page_range)
 
     raise ValueError(f"Unsupported format: {suffix}")
