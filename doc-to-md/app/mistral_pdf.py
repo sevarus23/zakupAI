@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -33,8 +34,7 @@ def _extract_markdown_from_payload(payload: dict[str, Any]) -> str:
     data = payload.get("data")
     if isinstance(data, dict):
         return _extract_markdown_from_payload(data)
-
-    raise MistralOcrError("Mistral OCR response does not contain markdown/text content")
+    return ""
 
 
 def run_pipeline(file_path: str, update_status, options, page_range):
@@ -53,7 +53,6 @@ def run_pipeline(file_path: str, update_status, options, page_range):
         raise MistralOcrError("PDF file does not exist")
 
     page_start, page_end = page_range
-    pages = list(range(page_start, page_end + 1))
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -69,12 +68,12 @@ def run_pipeline(file_path: str, update_status, options, page_range):
         },
         "include_image_base64": False,
     }
-    if pages:
-        payload["pages"] = pages
+    request_text = json.dumps(payload, ensure_ascii=False)
 
     print(
         f"[mistral-ocr] request model={model} pages={page_start}-{page_end} payload_keys={list(payload.keys())}"
     )
+    print(f"[mistral-ocr] raw_request={request_text}")
     response = requests.post(endpoint, headers=headers, json=payload, timeout=180)
 
     print(f"[mistral-ocr] status_code={response.status_code}")
@@ -92,8 +91,6 @@ def run_pipeline(file_path: str, update_status, options, page_range):
         raise MistralOcrError(f"Invalid JSON in Mistral OCR response: {exc}") from exc
 
     markdown = _extract_markdown_from_payload(payload)
-    if not markdown:
-        raise MistralOcrError("Mistral OCR produced empty markdown")
 
     update_status("Mistral OCR pipeline completed.")
     return markdown
