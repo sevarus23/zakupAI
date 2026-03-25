@@ -11,8 +11,8 @@ class LotParameter(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     name: str = Field(..., min_length=1)
-    value: str = Field(default="")
-    units: str = Field(default="")
+    value: str = Field(...)
+    units: str = Field(...)
 
 
 class LotItem(BaseModel):
@@ -20,8 +20,8 @@ class LotItem(BaseModel):
 
     name: str = Field(..., min_length=1)
     units: str = Field(..., min_length=1)
-    count: str = Field(default="")
-    parameters: list[LotParameter] = Field(default_factory=list)
+    count: str = Field(...)
+    parameters: list[LotParameter] = Field(...)
 
 
 class LotsExtractionResult(BaseModel):
@@ -31,7 +31,7 @@ class LotsExtractionResult(BaseModel):
 
 
 class BidLotItem(LotItem):
-    price: str = Field(default="")
+    price: str = Field(...)
 
 
 class BidLotsExtractionResult(BaseModel):
