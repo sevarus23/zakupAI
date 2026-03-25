@@ -60,7 +60,14 @@ PERPLEXITY_SUPPLIERS_SCHEMA: Dict[str, Any] = {
                         "is_relevant": {"type": "boolean"},
                         "confidence": {"type": "number"},
                     },
-                    "required": ["website", "emails", "is_relevant", "confidence"],
+                    "required": [
+                        "website",
+                        "name",
+                        "emails",
+                        "reason",
+                        "is_relevant",
+                        "confidence",
+                    ],
                     "additionalProperties": False,
                 },
             }
