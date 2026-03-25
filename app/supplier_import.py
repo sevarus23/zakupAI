@@ -1,6 +1,8 @@
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
 
@@ -33,44 +35,138 @@ def _load_json_list(path: Optional[str]) -> List[Dict[str, Any]]:
 def _normalize_site(url: Optional[str]) -> str:
     if not url:
         return ""
-    return url.rstrip("/")
+    normalized = url.strip()
+    if not normalized:
+        return ""
+    if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", normalized):
+        normalized = f"https://{normalized}"
+    parsed = urlparse(normalized)
+    host = (parsed.netloc or "").lower().strip()
+    if host.startswith("www."):
+        host = host[4:]
+    if not host:
+        return ""
+    return f"https://{host}"
+
+
+def _extract_domain(url: Optional[str]) -> str:
+    normalized = _normalize_site(url)
+    if not normalized:
+        return ""
+    parsed = urlparse(normalized)
+    return parsed.netloc.lower().strip()
+
+
+def _normalize_email(email: Any) -> str:
+    if not isinstance(email, str):
+        return ""
+    value = email.strip().lower()
+    if "@" not in value:
+        return ""
+    return value
+
+
+def _merge_source(current: Optional[str], new_value: Optional[str]) -> Optional[str]:
+    current_values = {part.strip() for part in (current or "").split("+") if part.strip()}
+    new_values = {part.strip() for part in (new_value or "").split("+") if part.strip()}
+    merged = sorted(current_values | new_values)
+    return "+".join(merged) if merged else None
+
+
+def _safe_confidence(value: Any, fallback: float = 0.5) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(0.0, min(1.0, confidence))
+
+
+def _build_dedup_key(domain: str, emails: List[str]) -> str:
+    primary_email = emails[0] if emails else ""
+    return f"{domain}|{primary_email}" if domain else primary_email
 
 
 def merge_contacts(
     processed_contacts: Iterable[Dict[str, Any]], search_output: Iterable[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
-    emails_map: Dict[str, List[str]] = {}
+    aggregated: Dict[str, Dict[str, Any]] = {}
+
+    def _ensure_record(raw_site: Optional[str]) -> Optional[Dict[str, Any]]:
+        domain = _extract_domain(raw_site)
+        if not domain:
+            return None
+        if domain not in aggregated:
+            aggregated[domain] = {
+                "website": _normalize_site(raw_site),
+                "domain": domain,
+                "is_relevant": True,
+                "reason": None,
+                "name": None,
+                "emails": [],
+                "source": None,
+                "confidence": 0.0,
+                "dedup_key": domain,
+            }
+        return aggregated[domain]
+
     for item in search_output:
-        site = _normalize_site(item.get("website"))
-        if not site:
+        record = _ensure_record(item.get("website"))
+        if not record:
             continue
+        record["source"] = _merge_source(record.get("source"), item.get("source") or "yandex")
+        record["confidence"] = max(record["confidence"], _safe_confidence(item.get("confidence"), fallback=0.55))
         emails = item.get("emails") or []
         if isinstance(emails, list):
-            emails_map[site] = [e for e in emails if isinstance(e, str)]
+            for email in emails:
+                normalized_email = _normalize_email(email)
+                if normalized_email and normalized_email not in record["emails"]:
+                    record["emails"].append(normalized_email)
 
-    merged: List[Dict[str, Any]] = []
-    seen: set[str] = set()
     for contact in processed_contacts:
-        site = _normalize_site(contact.get("website"))
-        if not site or site in seen:
+        record = _ensure_record(contact.get("website"))
+        if not record:
             continue
 
+        record["is_relevant"] = bool(record["is_relevant"] and contact.get("is_relevant", True))
+        if contact.get("reason"):
+            record["reason"] = contact.get("reason")
+        if contact.get("name") and not record.get("name"):
+            record["name"] = contact.get("name")
+        record["source"] = _merge_source(record.get("source"), contact.get("source") or "yandex")
+        fallback_confidence = 0.8 if contact.get("is_relevant", True) else 0.2
+        record["confidence"] = max(record["confidence"], _safe_confidence(contact.get("confidence"), fallback=fallback_confidence))
+
+        emails = contact.get("emails") or []
+        if isinstance(emails, list):
+            for email in emails:
+                normalized_email = _normalize_email(email)
+                if normalized_email and normalized_email not in record["emails"]:
+                    record["emails"].append(normalized_email)
+
+    # Deduplicate emails globally across sources/domains.
+    seen_emails: set[str] = set()
+    merged: List[Dict[str, Any]] = []
+    for domain, record in aggregated.items():
+        unique_emails: List[str] = []
+        for email in record.get("emails", []):
+            if email in seen_emails:
+                continue
+            seen_emails.add(email)
+            unique_emails.append(email)
+
+        dedup_key = record.get("dedup_key") or _build_dedup_key(domain, unique_emails)
         merged.append(
             {
-                "website": site,
-                "is_relevant": bool(contact.get("is_relevant", True)),
-                "reason": contact.get("reason"),
-                "name": contact.get("name"),
-                "emails": emails_map.get(site, []),
+                "website": record.get("website"),
+                "is_relevant": bool(record.get("is_relevant", True)),
+                "reason": record.get("reason"),
+                "name": record.get("name"),
+                "emails": unique_emails,
+                "source": record.get("source") or "unknown",
+                "confidence": _safe_confidence(record.get("confidence"), fallback=0.5),
+                "dedup_key": dedup_key,
             }
         )
-        seen.add(site)
-
-    # Add sites that only appeared in search_output
-    for site, emails in emails_map.items():
-        if site in seen:
-            continue
-        merged.append({"website": site, "is_relevant": True, "reason": None, "name": None, "emails": emails})
 
     return merged
 

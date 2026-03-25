@@ -43,14 +43,25 @@ class TaskQueue:
     def enqueue_supplier_search_task(
         self, purchase_id: int, terms_text: str, hints: Optional[List[str]] = None
     ) -> LLMTask:
-        """Create a task that will search suppliers based on technical task text."""
+        """Create a combined supplier search task (Yandex + Perplexity)."""
+        return self._enqueue_supplier_task("supplier_search", purchase_id, terms_text, hints)
+
+    def enqueue_supplier_search_perplexity_task(
+        self, purchase_id: int, terms_text: str, hints: Optional[List[str]] = None
+    ) -> LLMTask:
+        """Create a supplier search task using only Perplexity."""
+        return self._enqueue_supplier_task("supplier_search_perplexity", purchase_id, terms_text, hints)
+
+    def _enqueue_supplier_task(
+        self, task_type: str, purchase_id: int, terms_text: str, hints: Optional[List[str]] = None
+    ) -> LLMTask:
         payload = {"terms_text": terms_text or "", "hints": hints or []}
         with Session(engine) as session:
             existing = session.exec(
                 select(LLMTask)
                 .where(
                     LLMTask.purchase_id == purchase_id,
-                    LLMTask.task_type == "supplier_search",
+                    LLMTask.task_type == task_type,
                     LLMTask.status.in_(["queued", "in_progress"]),
                 )
                 .order_by(LLMTask.created_at.desc())
@@ -60,7 +71,7 @@ class TaskQueue:
 
             task = LLMTask(
                 purchase_id=purchase_id,
-                task_type="supplier_search",
+                task_type=task_type,
                 input_text=json.dumps(payload, ensure_ascii=False),
                 status="queued",
             )
@@ -206,7 +217,7 @@ class TaskQueue:
             if not task:
                 return
 
-            if task.task_type == "supplier_search":
+            if task.task_type in ("supplier_search", "supplier_search_perplexity"):
                 payload = self._load_payload(task.input_text)
                 terms_text = payload.get("terms_text", "")
                 hints = payload.get("hints") or []
@@ -340,7 +351,7 @@ def get_supplier_search_state(purchase_id: int) -> Optional[SupplierSearchState]
             select(LLMTask)
             .where(
                 LLMTask.purchase_id == purchase_id,
-                LLMTask.task_type == "supplier_search",
+                LLMTask.task_type.in_(["supplier_search", "supplier_search_perplexity"]),
             )
             .order_by(LLMTask.created_at.desc())
         ).first()
@@ -389,12 +400,20 @@ def get_supplier_search_queue_length(session: Optional[Session] = None) -> int:
                     LLMTask.task_type == "supplier_search", LLMTask.status == "queued"
                 )
             ).all()
-            return len(queued_tasks)
+            queued_perplexity = managed_session.exec(
+                select(LLMTask).where(
+                    LLMTask.task_type == "supplier_search_perplexity", LLMTask.status == "queued"
+                )
+            ).all()
+            return len(queued_tasks) + len(queued_perplexity)
 
     queued_tasks = session.exec(
         select(LLMTask).where(LLMTask.task_type == "supplier_search", LLMTask.status == "queued")
     ).all()
-    return len(queued_tasks)
+    queued_perplexity = session.exec(
+        select(LLMTask).where(LLMTask.task_type == "supplier_search_perplexity", LLMTask.status == "queued")
+    ).all()
+    return len(queued_tasks) + len(queued_perplexity)
 
 
 task_queue = TaskQueue()

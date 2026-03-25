@@ -64,6 +64,9 @@ class SupplierRead(BaseModel):
 class SupplierContactCreate(BaseModel):
     email: EmailStr
     source_url: Optional[str] = None
+    source: Optional[str] = None
+    confidence: Optional[float] = None
+    dedup_key: Optional[str] = None
     reason: Optional[str] = None
     is_selected_for_request: bool = False
 
@@ -72,6 +75,9 @@ class SupplierContactRead(BaseModel):
     id: int
     email: EmailStr
     source_url: Optional[str]
+    source: Optional[str]
+    confidence: Optional[float]
+    dedup_key: Optional[str]
     reason: Optional[str]
     is_selected_for_request: bool
     created_at: datetime
@@ -139,6 +145,7 @@ class EmailDraftResponse(BaseModel):
 class SupplierSearchRequest(BaseModel):
     terms_text: Optional[str] = None
     hints: Optional[List[str]] = None
+    provider: Literal["combined", "perplexity"] = "combined"
 
 
 class SupplierSearchResponse(BaseModel):
@@ -159,11 +166,17 @@ class ProcessedContact(BaseModel):
     reason: Optional[str] = None
     name: Optional[str] = None
     emails: List[str] = Field(default_factory=list)
+    source: Optional[str] = None
+    confidence: Optional[float] = None
+    dedup_key: Optional[str] = None
 
 
 class SearchOutputEntry(BaseModel):
     website: str
     emails: List[str] = Field(default_factory=list)
+    source: Optional[str] = None
+    confidence: Optional[float] = None
+    dedup_key: Optional[str] = None
 
 
 class SupplierImportRequest(BaseModel):

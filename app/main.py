@@ -524,6 +524,9 @@ def add_supplier_contact(
         supplier_id=supplier_id,
         email=payload.email,
         source_url=payload.source_url,
+        source=payload.source,
+        confidence=payload.confidence,
+        dedup_key=payload.dedup_key,
         reason=payload.reason,
         is_selected_for_request=payload.is_selected_for_request,
     )
@@ -645,11 +648,18 @@ def search_suppliers(
 
     state = get_supplier_search_state(purchase_id)
     if not state:
-        task = task_queue.enqueue_supplier_search_task(
-            purchase_id,
-            payload.terms_text or purchase.terms_text or "",
-            payload.hints,
-        )
+        if payload.provider == "perplexity":
+            task = task_queue.enqueue_supplier_search_perplexity_task(
+                purchase_id,
+                payload.terms_text or purchase.terms_text or "",
+                payload.hints,
+            )
+        else:
+            task = task_queue.enqueue_supplier_search_task(
+                purchase_id,
+                payload.terms_text or purchase.terms_text or "",
+                payload.hints,
+            )
         queue_length = get_supplier_search_queue_length()
         estimated_complete_time = datetime.utcnow() + timedelta(minutes=10 + queue_length * 10, hours=3)
         return SupplierSearchResponse(
@@ -812,6 +822,9 @@ def import_suppliers_from_script(
                 supplier_id=supplier.id,
                 email=email,
                 source_url=website,
+                source=item.get("source"),
+                confidence=item.get("confidence"),
+                dedup_key=item.get("dedup_key"),
                 reason=reason,
             )
             session.add(contact)

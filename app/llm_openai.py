@@ -40,6 +40,37 @@ SEARCH_QUERIES_SCHEMA: Dict[str, Any] = {
     "strict": True,
 }
 
+PERPLEXITY_SUPPLIERS_SCHEMA: Dict[str, Any] = {
+    "name": "perplexity_suppliers_extraction",
+    "schema": {
+        "type": "object",
+        "properties": {
+            "suppliers": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "website": {"type": "string"},
+                        "name": {"type": ["string", "null"]},
+                        "emails": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "reason": {"type": ["string", "null"]},
+                        "is_relevant": {"type": "boolean"},
+                        "confidence": {"type": "number"},
+                    },
+                    "required": ["website", "emails", "is_relevant", "confidence"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["suppliers"],
+        "additionalProperties": False,
+    },
+    "strict": True,
+}
+
 
 
 def _raw_create_chat_completion(client: OpenAI, **kwargs):
@@ -227,3 +258,99 @@ def extract_bid_lots(terms_text: str) -> Dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         print(f"[bid_lots_extraction] json_parse_failed: {exc}; raw_output={output_text}")
         raise
+
+
+def extract_structured_contacts_from_perplexity(raw_answer: str, terms_text: str) -> Dict[str, Any]:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured")
+
+    base_url = os.getenv("OPENAI_BASE_URL")
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Ты извлекаешь структуру поставщиков из результата поиска. "
+                "Возвращай только валидный JSON по схеме. "
+                "Если email не найден, верни пустой список emails."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Техническое задание:\n"
+                f"{terms_text}\n\n"
+                "Ответ Perplexity:\n"
+                f"{raw_answer}\n\n"
+                "Выдели потенциальных поставщиков, сайты, email и оцени уверенность."
+            ),
+        },
+    ]
+    _log_prompt("perplexity_contacts_postprocess", messages)
+
+    response = _raw_create_chat_completion(
+        client,
+        model=model,
+        messages=messages,
+        response_format={"type": "json_schema", "json_schema": PERPLEXITY_SUPPLIERS_SCHEMA},
+        max_completion_tokens=2200,
+    )
+    output_text = response.choices[0].message.content if response.choices else None
+    if not output_text:
+        raise RuntimeError("Empty response from OpenAI while parsing Perplexity output")
+
+    payload = json.loads(output_text)
+    suppliers = payload.get("suppliers") or []
+
+    processed_contacts: List[Dict[str, Any]] = []
+    search_output: List[Dict[str, Any]] = []
+    seen_sites: set[str] = set()
+    for supplier in suppliers:
+        website = " ".join((supplier.get("website") or "").split()).strip()
+        if not website:
+            continue
+        site_key = website.lower()
+        if site_key in seen_sites:
+            continue
+        seen_sites.add(site_key)
+
+        emails = supplier.get("emails") or []
+        normalized_emails: List[str] = []
+        for email in emails:
+            if not isinstance(email, str):
+                continue
+            email_value = email.strip().lower()
+            if "@" in email_value and email_value not in normalized_emails:
+                normalized_emails.append(email_value)
+
+        confidence = supplier.get("confidence")
+        try:
+            confidence_value = max(0.0, min(1.0, float(confidence)))
+        except (TypeError, ValueError):
+            confidence_value = 0.5
+
+        dedup_key = website.lower().rstrip("/")
+        common_fields = {
+            "website": website,
+            "emails": normalized_emails,
+            "source": "perplexity",
+            "confidence": confidence_value,
+            "dedup_key": dedup_key,
+        }
+        search_output.append(common_fields)
+        processed_contacts.append(
+            common_fields
+            | {
+                "is_relevant": bool(supplier.get("is_relevant", True)),
+                "reason": supplier.get("reason"),
+                "name": supplier.get("name"),
+            }
+        )
+
+    return {
+        "search_output": search_output,
+        "processed_contacts": processed_contacts,
+    }
