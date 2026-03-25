@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import re
 from html import unescape
 from pathlib import Path
 from typing import Callable, Tuple
@@ -173,6 +174,21 @@ def _html_to_markdown(html_text: str) -> str:
     return "\n".join(normalized).strip()
 
 
+def _sanitize_tables_in_markdown(markdown: str) -> str:
+    table_pattern = re.compile(r"<table\b[\s\S]*?</table>", re.IGNORECASE)
+
+    def _replace_table(match: re.Match[str]) -> str:
+        table_html = match.group(0)
+        soup = BeautifulSoup(table_html, "html.parser")
+        table_tag = soup.find("table")
+        if not table_tag:
+            return table_html
+        cleaned = _convert_table_to_html(table_tag)
+        return cleaned or table_html
+
+    return table_pattern.sub(_replace_table, markdown or "")
+
+
 def convert_to_markdown(path: Path, update_status: Callable[[str], None] | None = None) -> str:
     update_status = update_status or (lambda msg: None)
     suffix = path.suffix.lower()
@@ -197,6 +213,7 @@ def convert_to_markdown(path: Path, update_status: Callable[[str], None] | None 
         converted_html = _convert_with_libreoffice(path, path.parent, "html")
         html_content = converted_html.read_text(encoding="utf-8", errors="ignore")
         markdown = _html_to_markdown(html_content)
+        markdown = _sanitize_tables_in_markdown(markdown)
         if not markdown:
             raise RuntimeError("LibreOffice HTML conversion produced empty markdown")
         print(f"[doc-to-md] converted_markdown_non_pdf={markdown}")
