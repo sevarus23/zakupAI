@@ -19,7 +19,11 @@ def search_suppliers_with_perplexity(terms_text: str) -> Dict[str, Any]:
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured")
 
-    min_contacts = int(os.getenv("PERPLEXITY_MIN_CONTACTS", "10"))
+    min_contacts_raw = (os.getenv("PERPLEXITY_MIN_CONTACTS") or "").strip()
+    try:
+        min_contacts = int(min_contacts_raw) if min_contacts_raw else 10
+    except ValueError:
+        min_contacts = 10
     prompt = _build_prompt(terms_text or "", min_contacts)
 
     client = OpenAI(

@@ -684,6 +684,7 @@ def yandex_search_suppliers(query: str) -> List[Dict]:
         "userAgent": "browser-use-supplier-finder/1.0",
     }
 
+    response = None
     try:
         response = requests.post(
             "https://searchapi.api.cloud.yandex.net/v2/web/search",
@@ -693,7 +694,17 @@ def yandex_search_suppliers(query: str) -> List[Dict]:
         )
         response.raise_for_status()
     except Exception as exc:  # noqa: BLE001
-        print('Search API request status not 200')
+        status_code = getattr(response, "status_code", None)
+        response_text = ""
+        if response is not None:
+            try:
+                response_text = (response.text or "")[:3000]
+            except Exception:  # noqa: BLE001
+                response_text = "<failed to read response.text>"
+        print(
+            f"Search API request failed: status={status_code}, error={exc}, "
+            f"query={query!r}, response={response_text}"
+        )
         return []
 
     try:
