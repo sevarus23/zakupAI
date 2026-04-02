@@ -127,11 +127,16 @@ def _collect_combined_contacts(terms_text: str, task_type: str) -> Dict:
     ]
 
     # 2) Crawl merged websites and collect contacts.
-    crawled = collect_contacts_from_websites(
-        technical_task_text=terms_text,
-        websites=websites_to_crawl,
-        tz_summary=yandex_result.get("tz_summary"),
-    )
+    try:
+        crawled = collect_contacts_from_websites(
+            technical_task_text=terms_text,
+            websites=websites_to_crawl,
+            tz_summary=yandex_result.get("tz_summary"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Website crawl failed")
+        notes.append(f"Обход сайтов завершился с ошибкой: {exc}")
+        crawled = {"processed_contacts": [], "search_output": []}
     merged_contacts = merge_contacts(crawled.get("processed_contacts") or [], crawled.get("search_output") or [])
 
     merged_search_output = [

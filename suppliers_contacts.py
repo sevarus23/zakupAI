@@ -30,6 +30,14 @@ from helium import Link
 driver = None
 
 
+class WebsiteVisitError(Exception):
+    """Base exception for website navigation errors."""
+
+
+class WebsiteVisitTimeout(WebsiteVisitError):
+    """Raised when page renderer/page-load timeout happens."""
+
+
 def get_driver() -> webdriver.Chrome:
     global driver
     if driver is None:
@@ -469,7 +477,12 @@ def visit_website(url: str) -> str:
         Confirmation string.
     """
     get_driver()
-    helium.go_to(url)
+    try:
+        helium.go_to(url)
+    except TimeoutException as exc:
+        raise WebsiteVisitTimeout(f"Timeout while loading {url}: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise WebsiteVisitError(f"Failed to load {url}: {exc}") from exc
     return f"Opened {url}"
 
 
@@ -935,6 +948,14 @@ def collect_contacts_from_websites(
     processed_contacts: List[Dict[str, Any]] = []
     search_output: List[Dict[str, Any]] = []
     seen: set[str] = set()
+
+    def _resolve_confidence(site_item: Dict[str, Any], is_relevant: bool) -> float:
+        confidence = site_item.get("confidence")
+        try:
+            return max(0.0, min(1.0, float(confidence)))
+        except (TypeError, ValueError):
+            return 0.7 if is_relevant else 0.3
+
     for site_item in tqdm(websites):
         website = site_item.get("website") or site_item.get("link")
         if not website or website in seen:
@@ -943,54 +964,91 @@ def collect_contacts_from_websites(
         main_page_content = ""
         about_page_content = None
         catalog_page_content = None
+        about_page_1 = None
+        about_page_2 = None
+        catalog_page_1 = None
+        catalog_page_2 = None
+        main_page_1 = None
+        main_page_2 = None
         about_success = False
         catalog_success = False
 
         try:
             emails = parse_website(website)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            print(f"parse_website failed for {website}: {exc}")
             emails = []
 
-        visit_website(website)
-        main_page_1 = get_screenshot()
-        scroll_page(1000)
-        main_page_2 = get_screenshot()
-        main_page_content = html2text.html2text(html=get_driver().page_source or "")[:10000]
-
         try:
-            about_success = open_about_section()
+            visit_website(website)
+            main_page_1 = get_screenshot()
+            scroll_page(num_pixels=1000)
+            main_page_2 = get_screenshot()
+            main_page_content = html2text.html2text(html=get_driver().page_source or "")[:10000]
+
+            try:
+                about_success = open_about_section()
+            except Exception as exc:  # noqa: BLE001
+                print(f"open_about_section failed for {website}: {exc}")
+                about_success = False
+            if about_success:
+                try:
+                    about_page_1 = get_screenshot()
+                    scroll_page(num_pixels=1000)
+                    about_page_2 = get_screenshot()
+                    about_page_content = html2text.html2text(html=get_driver().page_source or "")[:10000]
+                except Exception as exc:  # noqa: BLE001
+                    print(f"about page capture failed for {website}: {exc}")
+                    about_success = False
+
+            try:
+                catalog_success = open_catalog()
+            except Exception as exc:  # noqa: BLE001
+                print(f"open_catalog failed for {website}: {exc}")
+                catalog_success = False
+            if catalog_success:
+                try:
+                    catalog_page_1 = get_screenshot()
+                    scroll_page(num_pixels=1000)
+                    catalog_page_2 = get_screenshot()
+                    catalog_page_content = html2text.html2text(html=get_driver().page_source or "")[:10000]
+                except Exception as exc:  # noqa: BLE001
+                    print(f"catalog page capture failed for {website}: {exc}")
+                    catalog_success = False
+
+            validation_result = company_validation(
+                tz_for_validation,
+                website=website,
+                main_page_img=[main_page_1, main_page_2],
+                main_page_content=main_page_content,
+                about_page_img=[about_page_1, about_page_2] if about_success else None,
+                about_page_content=about_page_content if about_success else None,
+                catalog_page_img=[catalog_page_1, catalog_page_2] if catalog_success else None,
+                catalog_page_content=catalog_page_content if catalog_success else None,
+            )
+        except WebsiteVisitTimeout as exc:
+            print(f"website timeout for {website}: {exc}")
+            validation_result = {
+                "is_relevant": False,
+                "reason": f"Таймаут при открытии сайта: {exc}",
+                "name": None,
+            }
+        except WebsiteVisitError as exc:
+            print(f"website visit error for {website}: {exc}")
+            validation_result = {
+                "is_relevant": False,
+                "reason": f"Ошибка открытия сайта: {exc}",
+                "name": None,
+            }
         except Exception as exc:  # noqa: BLE001
-            print(f"open_about_section failed for {website}: {exc}")
-            about_success = False
-        if about_success:
-            about_page_1 = get_screenshot()
-            scroll_page(1000)
-            about_page_2 = get_screenshot()
-            about_page_content = html2text.html2text(html=get_driver().page_source or "")[:10000]
+            print(f"website crawl/validation failed for {website}: {exc}")
+            validation_result = {
+                "is_relevant": False,
+                "reason": f"Ошибка обхода/валидации сайта: {exc}",
+                "name": None,
+            }
 
-        catalog_success = open_catalog()
-        if catalog_success:
-            catalog_page_1 = get_screenshot()
-            scroll_page(1000)
-            catalog_page_2 = get_screenshot()
-            catalog_page_content = html2text.html2text(html=get_driver().page_source or "")[:10000]
-
-        validation_result = company_validation(
-            tz_for_validation,
-            website=website,
-            main_page_img=[main_page_1, main_page_2],
-            main_page_content=main_page_content,
-            about_page_img=[about_page_1, about_page_1] if about_success else None,
-            about_page_content=about_page_content if about_success else None,
-            catalog_page_img=[catalog_page_1, catalog_page_2] if catalog_success else None,
-            catalog_page_content=catalog_page_content if catalog_success else None,
-        )
-
-        confidence = site_item.get("confidence")
-        try:
-            confidence_value = max(0.0, min(1.0, float(confidence)))
-        except (TypeError, ValueError):
-            confidence_value = 0.7 if validation_result.get("is_relevant") else 0.3
+        confidence_value = _resolve_confidence(site_item, bool(validation_result.get("is_relevant")))
 
         output_item = {
             "website": website,
