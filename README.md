@@ -13,6 +13,20 @@
    ```
 3. Через nginx фронтенд доступен на http://localhost, API — на http://localhost/api (Swagger: `/api/docs`). Для отладки можно ходить напрямую на backend http://localhost:8000.
 
+## Деплой в Coolify
+Для Coolify подготовлены отдельные файлы:
+- `docker-compose.coolify.yml`
+- `nginx.coolify.conf`
+
+Что важно для Coolify:
+- Внутри контейнера `nginx` работает только по `80` (TLS и сертификаты терминирует сам Coolify).
+- В качестве публичного сервиса в Coolify укажите `nginx` на порту `80`.
+- В переменных окружения обязательно задайте:
+  - `DATABASE_URL` (обычно `postgresql+psycopg2://...@db:5432/...`)
+  - `CORS_ORIGINS` (например, `https://ваш-домен`)
+  - ключи интеграций (`OPENAI_API_KEY`/`OPENROUTER_API_KEY`, `YANDEX_API_KEY`, `YANDEX_FOLDER_ID` и т.д.)
+- `VITE_API_URL` можно оставить пустым, тогда фронтенд будет ходить в API через текущий домен и путь `/api`.
+
 Основные переменные `.env` для поиска поставщиков:
 - `YANDEX_API_KEY`, `YANDEX_FOLDER_ID` — ключ и каталог Yandex Search API.
 - `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL` — доступ к LLM для генерации запросов/валидации.
