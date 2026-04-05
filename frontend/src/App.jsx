@@ -353,6 +353,7 @@ function App() {
   const [comparisonByBid, setComparisonByBid] = useState({});
   const [activeComparisonBidId, setActiveComparisonBidId] = useState(null);
   const [comparisonBusyBidId, setComparisonBusyBidId] = useState(null);
+  const [activeBidId, setActiveBidId] = useState(null);
 
   useEffect(() => {
     if (token) {
@@ -418,6 +419,11 @@ function App() {
     try {
       const data = await apiWithToken(`/purchases/${purchaseId}/bids`);
       setBids(data);
+      setActiveBidId((prev) => {
+        if (!data.length) return null;
+        if (prev && data.some((bid) => bid.id === prev)) return prev;
+        return data[0].id;
+      });
     } catch (err) {
       setError(err.message);
     }
@@ -499,6 +505,7 @@ function App() {
       setComparisonByBid({});
       setActiveComparisonBidId(null);
       setComparisonBusyBidId(null);
+      setActiveBidId(null);
 
       let isMounted = true;
       const fetchLots = async () => {
@@ -771,9 +778,58 @@ function App() {
   }, [purchases]);
 
   const selectedPurchase = purchases.find((p) => p.id === selectedId);
+  const activeBid = bids.find((bid) => bid.id === activeBidId) || null;
+  const activeComparisonBid =
+    bids.find((bid) => bid.id === activeComparisonBidId) || activeBid || null;
+  const activeComparisonRows = comparisonByBid[activeComparisonBidId]?.rows || [];
   const purchaseHasLongText = (selectedPurchase?.terms_text || '').length > 420;
   const lotsReady = lotsState.lots && lotsState.lots.length > 0;
   const truncateText = (value, limit) => (value.length > limit ? `${value.slice(0, limit)}…` : value);
+  const formatParamText = (param) => `${param.name}: ${param.value}${param.units ? ` ${param.units}` : ''}`;
+  const extractLotCount = (lot) => {
+    const quantityParam = (lot.parameters || []).find((param) => /колич/i.test(param.name || ''));
+    return quantityParam ? `${quantityParam.value}${quantityParam.units ? ` ${quantityParam.units}` : ''}` : '—';
+  };
+  const flattenBidLotsForTable = (bid) => {
+    if (!bid?.lots?.length) return [];
+    const rows = [];
+    bid.lots.forEach((lot) => {
+      const params = lot.parameters?.length ? lot.parameters : [{ name: '—', value: '—', units: '' }];
+      params.forEach((param, index) => {
+        rows.push({
+          id: `${lot.id}-${index}`,
+          lotName: lot.name || 'Лот без названия',
+          count: extractLotCount(lot),
+          price: lot.price || '—',
+          characteristic: formatParamText(param),
+          firstRowForLot: index === 0,
+          rowSpan: params.length,
+        });
+      });
+    });
+    return rows;
+  };
+  const buildComparisonRows = (comparisonRows, bidForComparison) => {
+    const matchedBidLotIds = new Set(
+      (comparisonRows || []).map((row) => row.bid_lot_id).filter((id) => id !== null && id !== undefined)
+    );
+    const unmatchedBidLots = (bidForComparison?.lots || []).filter((lot) => !matchedBidLotIds.has(lot.id));
+    const unmatchedRows = unmatchedBidLots.map((lot) => ({
+      lot_id: null,
+      lot_name: null,
+      lot_parameters: [],
+      bid_lot_id: lot.id,
+      bid_lot_name: lot.name,
+      bid_lot_price: lot.price,
+      bid_lot_parameters: lot.parameters || [],
+      confidence: null,
+      reason: null,
+      is_unmatched_bid_only: true,
+    }));
+    return [...(comparisonRows || []), ...unmatchedRows];
+  };
+  const activeBidLotRows = flattenBidLotsForTable(activeBid);
+  const comparisonRenderRows = buildComparisonRows(activeComparisonRows, activeComparisonBid);
   const renderParamPreview = (param) => {
     const units = param.units ? ` ${param.units}` : '';
     return truncateText(`${param.name}: ${param.value}${units}`, 50);
@@ -1390,122 +1446,137 @@ function App() {
             {activeSection === 'proposals' && (
               <>
                 <div className="card">
-              <div className="stack" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ margin: 0 }}>Предложения</h3>
-                <button className="secondary" onClick={() => setShowBidModal(true)} disabled={busy}>
-                  Добавить предложение
-                </button>
-              </div>
-              <div className="list" style={{ marginTop: 12 }}>
-                {pendingBids.map((pendingBid) => (
-                  <div key={pendingBid.id} className="card bid-card" style={{ marginBottom: 0, opacity: 0.8 }}>
-                    <div className="bid-card__header">
-                      <div>
-                        <div className="bid-card__title">Предложение</div>
-                        <div className="bid-card__supplier">{pendingBid.supplier_name}</div>
-                        {pendingBid.supplier_contact && <div className="muted">Контакт: {pendingBid.supplier_contact}</div>}
-                      </div>
-                      <div className="tag">В обработке</div>
-                    </div>
-                    <p className="muted" style={{ marginBottom: 0 }}>
-                      Предложение отправлено. Конвертация файла и извлечение лотов/цен уже запущены…
-                    </p>
+                  <div className="stack" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ margin: 0 }}>Предложения</h3>
+                    <button className="secondary" onClick={() => setShowBidModal(true)} disabled={busy}>
+                      Добавить предложение
+                    </button>
                   </div>
-                ))}
-                {bids.map((bid) => (
-                  <div
-                    key={bid.id}
-                    className="card bid-card"
-                    style={{
-                      marginBottom: 0,
-                      border: activeComparisonBidId === bid.id ? '1px solid #2563eb' : undefined,
-                    }}
-                  >
-                    <div className="bid-card__header">
-                      <div>
-                        <div className="bid-card__title">Предложение</div>
-                        <div className="bid-card__supplier">
-                          {bid.supplier_name || 'Поставщик не указан'}
+                  {pendingBids.length > 0 && (
+                    <div className="list" style={{ marginTop: 12 }}>
+                      {pendingBids.map((pendingBid) => (
+                        <div key={pendingBid.id} className="card bid-card" style={{ marginBottom: 0, opacity: 0.8 }}>
+                          <div className="bid-card__header">
+                            <div>
+                              <div className="bid-card__title">Предложение</div>
+                              <div className="bid-card__supplier">{pendingBid.supplier_name}</div>
+                              {pendingBid.supplier_contact && <div className="muted">Контакт: {pendingBid.supplier_contact}</div>}
+                            </div>
+                            <div className="tag">В обработке</div>
+                          </div>
+                          <p className="muted" style={{ marginBottom: 0 }}>
+                            Предложение отправлено. Конвертация файла и извлечение лотов/цен уже запущены…
+                          </p>
                         </div>
-                        {bid.supplier_contact && (
-                          <div className="muted">Контакт: {bid.supplier_contact}</div>
-                        )}
-                      </div>
-                      <div className="tag">Лотов: {bid.lots?.length || 0}</div>
+                      ))}
                     </div>
-                    <div className="stack" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+                  )}
+                  <div className="bid-selector-list">
+                    {bids.map((bid) => (
+                      <button
+                        key={bid.id}
+                        type="button"
+                        className={`bid-selector-card${activeBidId === bid.id ? ' active' : ''}`}
+                        onClick={() => setActiveBidId(bid.id)}
+                      >
+                        <div className="bid-card__title">Предложение</div>
+                        <div className="bid-card__supplier">{bid.supplier_name || 'Поставщик не указан'}</div>
+                        <div className="muted">Лотов: {bid.lots?.length || 0}</div>
+                        {bid.supplier_contact && <div className="muted">Контакт: {bid.supplier_contact}</div>}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="create-card"
+                      onClick={() => setShowBidModal(true)}
+                      disabled={busy}
+                    >
+                      <div className="create-card__icon">＋</div>
+                      <div className="create-card__text">Добавить предложение</div>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="stack" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ margin: 0 }}>Просмотр КП</h3>
+                    {activeBid && (
                       <button
                         type="button"
                         className="secondary"
-                        onClick={() => runBidComparison(bid.id)}
-                        disabled={comparisonBusyBidId === bid.id}
+                        onClick={() => {
+                          setActiveComparisonBidId(activeBid.id);
+                          runBidComparison(activeBid.id);
+                        }}
+                        disabled={comparisonBusyBidId === activeBid.id}
                       >
-                        {comparisonBusyBidId === bid.id ? 'Сравниваем…' : 'Сравнить'}
+                        {comparisonBusyBidId === activeBid.id ? 'Сравниваем…' : 'Сравнить'}
                       </button>
-                    </div>
-                    <p className="muted">
-                      {(bid.bid_text || '').length > 160
-                        ? `${bid.bid_text.slice(0, 160)}…`
-                        : bid.bid_text}
-                    </p>
-                    {bid.lots?.length ? (
-                      <div className="bid-lots">
-                        {bid.lots.map((lot) => (
-                          <div key={lot.id} className="bid-lot">
-                            <div className="bid-lot__header">
-                              <span className="bid-lot__name">{lot.name}</span>
-                              <span className="bid-lot__price">
-                                {lot.price ? `Цена: ${lot.price}` : 'Цена не указана'}
-                              </span>
-                            </div>
-                            {lot.parameters?.length ? (
-                              <ul className="bid-lot__params">
-                                {lot.parameters.map((param, idx) => (
-                                  <li key={`${lot.id}-param-${idx}`}>
-                                    <span className="bid-lot__param-name">{param.name}:</span>{' '}
-                                    {param.value}
-                                    {param.units ? ` ${param.units}` : ''}
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <div className="muted">Параметры не указаны.</div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="muted">Лоты из предложения ещё не выделены.</div>
                     )}
                   </div>
-                ))}
-                <button
-                  type="button"
-                  className="create-card"
-                  onClick={() => setShowBidModal(true)}
-                  disabled={busy}
-                >
-                  <div className="create-card__icon">＋</div>
-                  <div className="create-card__text">Добавить предложение</div>
-                </button>
-              </div>
-            </div>
+                  {!activeBid && (
+                    <p className="muted" style={{ marginTop: 12, marginBottom: 0 }}>
+                      Выберите предложение из списка карточек.
+                    </p>
+                  )}
+                  {activeBid && (
+                    <>
+                      <p className="muted" style={{ marginTop: 12 }}>
+                        {activeBid.supplier_name || 'Поставщик не указан'}
+                        {activeBid.supplier_contact ? ` • ${activeBid.supplier_contact}` : ''}
+                      </p>
+                      <div className="comparison-table-wrap">
+                        <table className="table">
+                          <thead>
+                            <tr>
+                              <th>Имя лота</th>
+                              <th>Количество</th>
+                              <th>Характеристика</th>
+                              <th>Цена</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activeBidLotRows.length ? (
+                              activeBidLotRows.map((row) => (
+                                <tr key={`bid-view-${row.id}`}>
+                                  {row.firstRowForLot && <td rowSpan={row.rowSpan}>{row.lotName}</td>}
+                                  {row.firstRowForLot && <td rowSpan={row.rowSpan}>{row.count}</td>}
+                                  <td>{row.characteristic}</td>
+                                  {row.firstRowForLot && <td rowSpan={row.rowSpan}>{row.price}</td>}
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan={4} className="muted">
+                                  Лоты из предложения ещё не выделены.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 <div className="card">
                   <div className="stack" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                     <h3 style={{ margin: 0 }}>Сравнение</h3>
-                    {activeComparisonBidId && (
+                    {activeComparisonBid && (
                       <button
                         type="button"
                         className="secondary"
-                        onClick={() => runBidComparison(activeComparisonBidId)}
-                        disabled={comparisonBusyBidId === activeComparisonBidId}
+                        onClick={() => {
+                          setActiveComparisonBidId(activeComparisonBid.id);
+                          runBidComparison(activeComparisonBid.id);
+                        }}
+                        disabled={comparisonBusyBidId === activeComparisonBid.id}
                       >
-                        {comparisonBusyBidId === activeComparisonBidId ? 'Сравниваем…' : 'Сравнить'}
+                        {comparisonBusyBidId === activeComparisonBid.id ? 'Сравниваем…' : 'Сравнить'}
                       </button>
                     )}
                   </div>
-                  {!activeComparisonBidId && (
+                  {!activeComparisonBid && (
                     <p className="muted" style={{ marginTop: 12, marginBottom: 0 }}>
                       Выберите предложение и нажмите «Сравнить».
                     </p>
@@ -1527,7 +1598,7 @@ function App() {
                       <p className="muted" style={{ marginTop: 12 }}>
                         {comparisonByBid[activeComparisonBidId]?.note || 'Сравнение завершено'}
                       </p>
-                      {comparisonByBid[activeComparisonBidId]?.rows?.length ? (
+                      {comparisonRenderRows.length ? (
                         <div className="comparison-table-wrap">
                           <table className="table comparison-table">
                             <thead>
@@ -1537,21 +1608,27 @@ function App() {
                               </tr>
                             </thead>
                             <tbody>
-                              {comparisonByBid[activeComparisonBidId].rows.map((row) => (
-                                <tr key={`cmp-row-${row.lot_id}`}>
+                              {comparisonRenderRows.map((row, rowIdx) => (
+                                <tr key={`cmp-row-${row.lot_id || 'bid-only'}-${row.bid_lot_id || 'none'}-${rowIdx}`}>
                                   <td>
-                                    <div className="comparison-lot-name">{row.lot_name}</div>
-                                    {row.lot_parameters?.length ? (
-                                      <ul className="comparison-param-list">
-                                        {row.lot_parameters.map((param, idx) => (
-                                          <li key={`cmp-left-${row.lot_id}-${idx}`}>
-                                            <span className="bid-lot__param-name">{param.name}:</span> {param.value}
-                                            {param.units ? ` ${param.units}` : ''}
-                                          </li>
-                                        ))}
-                                      </ul>
+                                    {row.lot_name ? (
+                                      <>
+                                        <div className="comparison-lot-name">{row.lot_name}</div>
+                                        {row.lot_parameters?.length ? (
+                                          <ul className="comparison-param-list">
+                                            {row.lot_parameters.map((param, idx) => (
+                                              <li key={`cmp-left-${row.lot_id || 'none'}-${idx}`}>
+                                                <span className="bid-lot__param-name">{param.name}:</span> {param.value}
+                                                {param.units ? ` ${param.units}` : ''}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        ) : (
+                                          <div className="muted">Параметры не указаны.</div>
+                                        )}
+                                      </>
                                     ) : (
-                                      <div className="muted">Параметры не указаны.</div>
+                                      <div className="muted"></div>
                                     )}
                                   </td>
                                   <td>
@@ -1566,7 +1643,7 @@ function App() {
                                         {row.bid_lot_parameters?.length ? (
                                           <ul className="comparison-param-list">
                                             {row.bid_lot_parameters.map((param, idx) => (
-                                              <li key={`cmp-right-${row.lot_id}-${idx}`}>
+                                              <li key={`cmp-right-${row.bid_lot_id || 'none'}-${idx}`}>
                                                 <span className="bid-lot__param-name">{param.name}:</span> {param.value}
                                                 {param.units ? ` ${param.units}` : ''}
                                               </li>
