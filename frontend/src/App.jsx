@@ -620,8 +620,22 @@ function App() {
     return null;
   };
 
+  const loadComparisonForBid = async (purchaseId, bidId, options = {}) => {
+    if (!purchaseId || !bidId) return null;
+    const { pollIfRunning = false } = options;
+    const state = await apiWithToken(`/purchases/${purchaseId}/bids/${bidId}/comparison`);
+    if (state) {
+      setComparisonByBid((prev) => ({ ...prev, [bidId]: state }));
+      if (pollIfRunning && (state.status === 'queued' || state.status === 'in_progress')) {
+        await pollComparisonStatus(purchaseId, bidId);
+      }
+    }
+    return state;
+  };
+
   const runBidComparison = async (bidId) => {
     if (!selectedId || !bidId) return;
+    setActiveBidId(bidId);
     setActiveComparisonBidId(bidId);
     setComparisonBusyBidId(bidId);
     setError('');
@@ -639,6 +653,35 @@ function App() {
       setComparisonBusyBidId(null);
     }
   };
+
+  useEffect(() => {
+    if (!token || !selectedId || !activeBidId) return;
+    setActiveComparisonBidId(activeBidId);
+
+    const cached = comparisonByBid[activeBidId];
+    if (cached) {
+      if (cached.status === 'queued' || cached.status === 'in_progress') {
+        setComparisonBusyBidId(activeBidId);
+        pollComparisonStatus(selectedId, activeBidId).finally(() => setComparisonBusyBidId(null));
+      }
+      return;
+    }
+
+    let cancelled = false;
+    setComparisonBusyBidId(activeBidId);
+    loadComparisonForBid(selectedId, activeBidId, { pollIfRunning: true })
+      .catch((err) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setComparisonBusyBidId(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, selectedId, activeBidId]);
 
   const handleAuth = (newToken, email) => {
     localStorage.setItem('zakupai_token', newToken);
@@ -1477,7 +1520,10 @@ function App() {
                         key={bid.id}
                         type="button"
                         className={`bid-selector-card${activeBidId === bid.id ? ' active' : ''}`}
-                        onClick={() => setActiveBidId(bid.id)}
+                        onClick={() => {
+                          setActiveBidId(bid.id);
+                          setActiveComparisonBidId(bid.id);
+                        }}
                       >
                         <div className="bid-card__title">Предложение</div>
                         <div className="bid-card__supplier">{bid.supplier_name || 'Поставщик не указан'}</div>
