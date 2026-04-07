@@ -14,17 +14,6 @@
 
   // ── DOM cache ──────────────────────────────────────────────────────
   var $ = function (id) { return document.getElementById(id); };
-  var purchaseList = $('purchase-list');
-  var purchaseTitle = $('purchase-title');
-  var purchaseStatus = $('purchase-status');
-  var purchaseStatusText = $('purchase-status-text');
-  var lotsContainer = $('lots-container');
-  var suppliersContainer = $('suppliers-container');
-  var searchStatus = $('search-status');
-  var bidsContainer = $('bids-container');
-  var comparisonBidSelector = $('comparison-bid-selector');
-  var comparisonResults = $('comparison-results');
-  var emailDraft = $('email-draft');
 
   // ── Utilities ──────────────────────────────────────────────────────
 
@@ -61,6 +50,12 @@
     return div.innerHTML;
   }
 
+  function pluralParams(n) {
+    if (n % 10 === 1 && n % 100 !== 11) return '';
+    if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) return 'а';
+    return 'ов';
+  }
+
   // ── Toasts ─────────────────────────────────────────────────────────
 
   function showError(msg) {
@@ -85,79 +80,132 @@
 
   function openModal(id) {
     var modal = $(id);
-    if (modal) modal.style.display = 'flex';
+    if (modal) modal.classList.add('open');
   }
 
   function closeModal(id) {
     var modal = $(id);
-    if (modal) modal.style.display = 'none';
-  }
-
-  function closeAllModals() {
-    var overlays = document.querySelectorAll('.modal-overlay');
-    for (var i = 0; i < overlays.length; i++) {
-      overlays[i].style.display = 'none';
-    }
+    if (modal) modal.classList.remove('open');
   }
 
   function initModals() {
-    // Close buttons
-    var closeBtns = document.querySelectorAll('[data-modal-close]');
+    // Close buttons (X icon)
+    var closeBtns = document.querySelectorAll('.modal-close');
     for (var i = 0; i < closeBtns.length; i++) {
       closeBtns[i].addEventListener('click', function () {
         var overlay = this.closest('.modal-overlay');
-        if (overlay) overlay.style.display = 'none';
+        if (overlay) overlay.classList.remove('open');
       });
     }
-    // Click overlay to close (not modal body)
+    // Cancel buttons
+    var cancelBtns = document.querySelectorAll('.modal-close-btn');
+    for (var j = 0; j < cancelBtns.length; j++) {
+      cancelBtns[j].addEventListener('click', function () {
+        var overlay = this.closest('.modal-overlay');
+        if (overlay) overlay.classList.remove('open');
+      });
+    }
+    // Click overlay backdrop to close
     var overlays = document.querySelectorAll('.modal-overlay');
-    for (var j = 0; j < overlays.length; j++) {
-      overlays[j].addEventListener('click', function (e) {
-        if (e.target === this) this.style.display = 'none';
+    for (var k = 0; k < overlays.length; k++) {
+      overlays[k].addEventListener('click', function (e) {
+        if (e.target === this) this.classList.remove('open');
       });
     }
   }
 
-  // ── Tabs ───────────────────────────────────────────────────────────
+  // ── Tabs (sidebar) ────────────────────────────────────────────────
 
   function initTabs() {
-    var btns = document.querySelectorAll('.tab-btn[data-tab]');
-    for (var i = 0; i < btns.length; i++) {
-      btns[i].addEventListener('click', function () {
-        var tab = this.getAttribute('data-tab');
-        // Toggle button active
-        var all = document.querySelectorAll('.tab-btn[data-tab]');
-        for (var j = 0; j < all.length; j++) {
-          all[j].classList.remove('active');
-          all[j].setAttribute('aria-selected', 'false');
+    var tabs = document.querySelectorAll('.sidebar .tab[data-tab]');
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].addEventListener('click', function () {
+        var tabId = this.getAttribute('data-tab');
+        // Toggle tab active state
+        var allTabs = document.querySelectorAll('.sidebar .tab[data-tab]');
+        for (var j = 0; j < allTabs.length; j++) {
+          allTabs[j].classList.remove('active');
         }
         this.classList.add('active');
-        this.setAttribute('aria-selected', 'true');
-        // Toggle panels
+        // Toggle content panels
         var panels = document.querySelectorAll('.tab-content');
         for (var k = 0; k < panels.length; k++) {
           panels[k].classList.remove('active');
         }
-        var panel = $('tab-' + tab);
+        var panel = $('tab-' + tabId);
         if (panel) panel.classList.add('active');
       });
     }
   }
 
-  // ── Sidebar ────────────────────────────────────────────────────────
+  // ── Header: user info, logout ─────────────────────────────────────
 
-  function initSidebar() {
+  function initHeader() {
     var user = Auth.getUser();
     if (user) {
-      $('user-name').textContent = user.full_name || user.email || '';
-      $('user-role').textContent = user.is_admin ? 'Администратор' : 'Пользователь';
-      $('user-avatar').textContent = (user.full_name || user.email || '?').charAt(0).toUpperCase();
+      $('user-info').textContent = user.email || user.full_name || '';
     }
     $('btn-logout').addEventListener('click', function () { Auth.logout(); });
-    $('sidebar-toggle').addEventListener('click', function () {
-      var sidebar = document.querySelector('.sidebar');
-      sidebar.classList.toggle('open');
+  }
+
+  // ── Purchase selector dropdown ────────────────────────────────────
+
+  function initPurchaseSelector() {
+    var selector = $('procurement-selector');
+    var dropdown = $('procurement-dropdown');
+
+    selector.addEventListener('click', function (e) {
+      e.stopPropagation();
+      dropdown.classList.toggle('hidden');
     });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function () {
+      dropdown.classList.add('hidden');
+    });
+
+    dropdown.addEventListener('click', function (e) {
+      e.stopPropagation();
+    });
+  }
+
+  function renderPurchaseDropdown() {
+    var dropdown = $('procurement-dropdown');
+    if (!purchases.length) {
+      dropdown.innerHTML = '<div class="procurement-dropdown-item" style="color:var(--text-secondary);cursor:default">Нет закупок</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < purchases.length; i++) {
+      var p = purchases[i];
+      var active = currentPurchase && currentPurchase.id === p.id ? ' active' : '';
+      html += '<div class="procurement-dropdown-item' + active + '" data-purchase-id="' + p.id + '">' +
+        escapeHtml(p.custom_name || 'Закупка #' + p.id) +
+        '</div>';
+    }
+    dropdown.innerHTML = html;
+
+    // Bind clicks
+    var items = dropdown.querySelectorAll('[data-purchase-id]');
+    for (var j = 0; j < items.length; j++) {
+      items[j].addEventListener('click', function () {
+        var id = parseInt(this.getAttribute('data-purchase-id'), 10);
+        var p = purchases.find(function (x) { return x.id === id; });
+        if (p) {
+          selectPurchase(p);
+          $('procurement-dropdown').classList.add('hidden');
+        }
+      });
+    }
+  }
+
+  function updateSelectorText() {
+    var textEl = $('procurement-selector-text');
+    if (currentPurchase) {
+      textEl.textContent = currentPurchase.custom_name || 'Закупка #' + currentPurchase.id;
+    } else {
+      textEl.textContent = 'Выберите закупку';
+    }
   }
 
   // ── Purchase list ──────────────────────────────────────────────────
@@ -165,67 +213,31 @@
   async function loadPurchases() {
     try {
       purchases = await API.apiFetch('/purchases');
-      renderPurchaseList();
+      renderPurchaseDropdown();
       if (purchases.length > 0 && !currentPurchase) {
         selectPurchase(purchases[0]);
+      }
+      if (!purchases.length) {
+        updateSelectorText();
       }
     } catch (e) {
       showError('Не удалось загрузить список закупок: ' + e.message);
     }
   }
 
-  function renderPurchaseList() {
-    if (!purchases.length) {
-      purchaseList.innerHTML = '<div class="empty-state" style="padding:var(--space-4)"><p class="empty-state-text">Нет закупок</p></div>';
-      return;
-    }
-    var html = '';
-    for (var i = 0; i < purchases.length; i++) {
-      var p = purchases[i];
-      var active = currentPurchase && currentPurchase.id === p.id ? ' active' : '';
-      html += '<button type="button" class="sidebar-nav-btn' + active + '" data-purchase-id="' + p.id + '">' +
-        '<span class="sidebar-nav-btn-text">' + escapeHtml(p.custom_name || 'Закупка #' + p.id) + '</span>' +
-        '<span class="sidebar-nav-btn-date">' + formatDate(p.created_at) + '</span>' +
-        '</button>';
-    }
-    purchaseList.innerHTML = html;
-    // Bind clicks
-    var btns = purchaseList.querySelectorAll('[data-purchase-id]');
-    for (var j = 0; j < btns.length; j++) {
-      btns[j].addEventListener('click', function () {
-        var id = parseInt(this.getAttribute('data-purchase-id'), 10);
-        var p = purchases.find(function (x) { return x.id === id; });
-        if (p) selectPurchase(p);
-      });
-    }
-  }
-
   async function selectPurchase(purchase) {
     currentPurchase = purchase;
     clearPolling();
-    renderPurchaseList();
-    // Update context bar
-    purchaseTitle.textContent = purchase.custom_name || 'Закупка #' + purchase.id;
-    updateStatusBadge(purchase.status);
+    updateSelectorText();
+    renderPurchaseDropdown();
     // Load all data
     loadLots();
     loadSuppliers();
     loadBids();
     // Reset comparison
     selectedBidId = null;
-    comparisonResults.innerHTML = '';
+    $('comparison-results').innerHTML = '';
     $('btn-compare').disabled = true;
-  }
-
-  function updateStatusBadge(status) {
-    var map = {
-      draft: { text: 'Черновик', cls: 'badge-inactive' },
-      active: { text: 'Активна', cls: 'badge-active' },
-      completed: { text: 'Завершена', cls: 'badge-success' },
-    };
-    var info = map[status] || { text: status || '--', cls: 'badge-inactive' };
-    purchaseStatusText.textContent = info.text;
-    purchaseStatus.className = 'badge ' + info.cls;
   }
 
   // ── Create purchase ────────────────────────────────────────────────
@@ -235,11 +247,22 @@
       openModal('modal-new-purchase');
     });
 
+    // File upload zone click
+    $('purchase-tz-upload').addEventListener('click', function () {
+      $('inp-purchase-tz-file').click();
+    });
+    $('inp-purchase-tz-file').addEventListener('change', function () {
+      var file = this.files[0];
+      if (file) {
+        $('purchase-tz-label').textContent = file.name;
+      }
+    });
+
     $('form-new-purchase').addEventListener('submit', async function (e) {
       e.preventDefault();
       var name = $('inp-purchase-name').value.trim();
       var termsText = $('inp-terms-text').value.trim();
-      var fileInput = $('inp-tz-file');
+      var fileInput = $('inp-purchase-tz-file');
       var file = fileInput.files[0];
 
       if (!name) { showError('Введите название закупки'); return; }
@@ -260,11 +283,44 @@
         showMessage('Закупка создана');
         closeModal('modal-new-purchase');
         this.reset();
+        $('purchase-tz-label').textContent = 'Нажмите для загрузки';
         purchases.unshift(newPurchase);
         selectPurchase(newPurchase);
       } catch (e) {
         showError('Ошибка создания закупки: ' + e.message);
       }
+    });
+  }
+
+  // ── TZ Upload (on search tab) ─────────────────────────────────────
+
+  function initTzUpload() {
+    $('tz-upload-zone').addEventListener('click', function () {
+      $('inp-tz-file').click();
+    });
+
+    $('inp-tz-file').addEventListener('change', async function () {
+      var file = this.files[0];
+      if (!file || !currentPurchase) return;
+
+      try {
+        showMessage('Конвертация документа...');
+        var converted = await API.convertTechTaskFile(file);
+        if (converted && converted.markdown) {
+          var existingTerms = currentPurchase.terms_text || '';
+          var newTerms = existingTerms ? existingTerms + '\n\n' + converted.markdown : converted.markdown;
+          await API.apiFetch('/purchases/' + currentPurchase.id, {
+            method: 'PATCH',
+            body: { terms_text: newTerms },
+          });
+          currentPurchase.terms_text = newTerms;
+          showMessage('ТЗ загружено, обновляем лоты...');
+          loadLots();
+        }
+      } catch (e) {
+        showError('Ошибка загрузки ТЗ: ' + e.message);
+      }
+      this.value = '';
     });
   }
 
@@ -277,6 +333,7 @@
       var status = resp.status;
       currentLots = resp.lots || [];
       renderLots();
+      updateLotsStatus(status);
       // Poll if processing
       if (status === 'queued' || status === 'in_progress') {
         lotsPollingTimer = setTimeout(loadLots, 3000);
@@ -286,42 +343,61 @@
     }
   }
 
+  function updateLotsStatus(status) {
+    var statusEl = $('lots-status');
+    var textEl = $('lots-status-text');
+    statusEl.className = 'status';
+    if (status === 'done' || status === 'ready') {
+      statusEl.classList.add('status-active');
+      textEl.textContent = currentLots.length + ' распознано';
+      // Update badge
+      var badge = $('badge-search');
+      if (currentLots.length > 0) {
+        badge.textContent = currentLots.length;
+        badge.classList.remove('hidden');
+      }
+    } else if (status === 'queued' || status === 'in_progress') {
+      statusEl.classList.add('status-search');
+      textEl.textContent = 'Обработка...';
+    } else {
+      statusEl.classList.add('status-draft');
+      textEl.textContent = '--';
+    }
+  }
+
   function renderLots() {
+    var container = $('lots-container');
     if (!currentLots.length) {
-      lotsContainer.innerHTML = '<div class="empty-state"><p class="empty-state-text">Загрузите ТЗ или добавьте лоты вручную</p></div>';
+      container.innerHTML = '<div class="empty-state">Загрузите ТЗ или добавьте лоты вручную</div>';
       return;
     }
     var html = '';
     for (var i = 0; i < currentLots.length; i++) {
       var lot = currentLots[i];
       var paramCount = lot.parameters ? lot.parameters.length : 0;
-      html += '<div class="lot-card" data-lot-index="' + i + '" style="padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:var(--space-2);cursor:pointer;transition:background .15s">' +
-        '<div style="font-weight:500">' + escapeHtml(lot.name) + '</div>' +
-        '<div style="font-size:var(--font-size-sm);color:var(--text-muted)">' + paramCount + ' параметр' + pluralParams(paramCount) + '</div>' +
-        '</div>';
+      html += '<div class="lot-item" data-lot-index="' + i + '">' +
+        '<div class="lot-num">' + (i + 1) + '</div>' +
+        '<div class="lot-info">' +
+        '<div class="lot-name">' + escapeHtml(lot.name) + '</div>' +
+        '<div class="lot-meta">' + paramCount + ' параметр' + pluralParams(paramCount) + '</div>' +
+        '</div></div>';
     }
-    lotsContainer.innerHTML = html;
+    container.innerHTML = html;
     // Click to show detail
-    var cards = lotsContainer.querySelectorAll('.lot-card');
-    for (var j = 0; j < cards.length; j++) {
-      cards[j].addEventListener('click', function () {
+    var items = container.querySelectorAll('.lot-item');
+    for (var j = 0; j < items.length; j++) {
+      items[j].addEventListener('click', function () {
         var idx = parseInt(this.getAttribute('data-lot-index'), 10);
         showLotDetail(currentLots[idx]);
       });
     }
   }
 
-  function pluralParams(n) {
-    if (n % 10 === 1 && n % 100 !== 11) return '';
-    if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) return 'а';
-    return 'ов';
-  }
-
   function showLotDetail(lot) {
     $('lot-detail-name').textContent = lot.name;
     var tbody = $('lot-detail-params-body');
     if (!lot.parameters || !lot.parameters.length) {
-      tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted)">Нет параметров</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-secondary)">Нет параметров</td></tr>';
     } else {
       var html = '';
       for (var i = 0; i < lot.parameters.length; i++) {
@@ -377,11 +453,10 @@
     var list = $('lot-params-list');
     var row = document.createElement('div');
     row.className = 'lot-param-row';
-    row.style.cssText = 'display:grid;grid-template-columns:2fr 2fr 1fr auto;gap:var(--space-2);margin-bottom:var(--space-2);align-items:center';
     row.innerHTML = '<input type="text" class="form-input" placeholder="Название">' +
       '<input type="text" class="form-input" placeholder="Значение">' +
       '<input type="text" class="form-input" placeholder="Ед. изм.">' +
-      '<button type="button" class="btn btn-sm btn-outline" style="color:var(--danger)" title="Удалить">&times;</button>';
+      '<button type="button" class="btn btn-sm btn-secondary" style="color:var(--danger)" title="Удалить">&times;</button>';
     row.querySelector('button').addEventListener('click', function () { row.remove(); });
     list.appendChild(row);
   }
@@ -393,7 +468,7 @@
     try {
       currentSuppliers = await API.apiFetch('/purchases/' + currentPurchase.id + '/suppliers');
       renderSuppliers();
-      // Also check search state
+      renderOwnSuppliers();
       checkSearchStatus();
     } catch (e) {
       showError('Ошибка загрузки поставщиков: ' + e.message);
@@ -415,12 +490,12 @@
       }
     } catch (_) {
       // No active search — that's fine
-      searchStatus.classList.add('hidden');
+      $('search-status').classList.add('hidden');
     }
   }
 
   function renderSearchStatus(state) {
-    var statusEl = searchStatus;
+    var statusEl = $('search-status');
     statusEl.classList.remove('hidden');
     var statusMap = {
       queued: 'В очереди...',
@@ -429,55 +504,84 @@
       failed: 'Ошибка поиска',
     };
     var text = statusMap[state.status] || state.status;
-    var cls = state.status === 'done' ? 'alert alert-success' :
-              state.status === 'failed' ? 'alert alert-danger' :
-              'alert alert-info';
-    statusEl.className = cls + ' mb-4';
-    var extra = '';
+
+    if (state.status === 'queued' || state.status === 'in_progress') {
+      statusEl.className = 'search-status';
+      statusEl.innerHTML = '<div class="spinner"></div><div><strong>' + text + '</strong></div>';
+    } else if (state.status === 'done') {
+      statusEl.className = 'search-status';
+      statusEl.style.background = 'var(--success-bg)';
+      statusEl.innerHTML = '<div style="color:var(--success);font-size:16px">&#10003;</div><div><strong style="color:var(--success)">' + text + '</strong></div>';
+    } else if (state.status === 'failed') {
+      statusEl.className = 'search-status';
+      statusEl.style.background = 'var(--danger-bg)';
+      statusEl.innerHTML = '<div style="color:var(--danger);font-size:16px">&#10007;</div><div><strong style="color:var(--danger)">' + text + '</strong></div>';
+    }
+
     if (state.queries && state.queries.length) {
-      extra = '<div style="margin-top:var(--space-2);font-size:var(--font-size-sm)">Запросы: ' +
+      statusEl.innerHTML += '<div style="font-size:12px;color:var(--text-secondary);margin-left:auto">Запросы: ' +
         state.queries.map(function (q) { return escapeHtml(q); }).join(', ') + '</div>';
     }
-    statusEl.innerHTML = '<strong>' + text + '</strong>' + extra;
+  }
+
+  function renderOwnSuppliers() {
+    var container = $('own-suppliers-container');
+    var ownSuppliers = currentSuppliers.filter(function (s) { return s.source === 'manual'; });
+    if (!ownSuppliers.length) {
+      container.innerHTML = '<div class="info-block">&#128100; Добавьте своих поставщиков — им тоже будет направлен запрос ТКП</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < ownSuppliers.length; i++) {
+      var s = ownSuppliers[i];
+      html += '<div class="own-supplier-item">' +
+        '<div class="flex-between">' +
+        '<div><div class="supplier-name">' + escapeHtml(s.company_name) + '</div>' +
+        '<div class="supplier-email">' + escapeHtml(s.website_url || '') + '</div></div>' +
+        '<span class="source-tag source-manual">Свой</span>' +
+        '</div>' +
+        (s.reason ? '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">' + escapeHtml(s.reason) + '</div>' : '') +
+        '</div>';
+    }
+    container.innerHTML = html;
   }
 
   function renderSuppliers() {
+    var container = $('suppliers-container');
     var exportBtn = $('btn-export');
     if (!currentSuppliers.length) {
-      suppliersContainer.innerHTML = '<div class="empty-state"><p class="empty-state-text">Нажмите «Найти поставщиков» для начала поиска</p></div>';
+      container.innerHTML = '<div class="empty-state">Нажмите «Запустить поиск» для начала</div>';
       exportBtn.classList.add('hidden');
       return;
     }
     exportBtn.classList.remove('hidden');
 
-    var html = '<div class="table-wrap"><table class="table"><thead><tr>' +
-      '<th>Компания</th><th>Сайт</th><th>Причина</th><th>Контакты</th></tr></thead><tbody>';
+    var html = '<table class="suppliers-table"><thead><tr>' +
+      '<th>Поставщик</th><th>Сайт</th><th>Источник</th><th>Причина</th><th>Контакты</th></tr></thead><tbody>';
     for (var i = 0; i < currentSuppliers.length; i++) {
       var s = currentSuppliers[i];
-      var website = s.website_url ? '<a href="' + escapeHtml(s.website_url) + '" target="_blank" rel="noopener">' + escapeHtml(s.website_url) + '</a>' : '—';
-      html += '<tr data-supplier-id="' + s.id + '">' +
-        '<td style="font-weight:500">' + escapeHtml(s.company_name) + '</td>' +
+      var website = s.website_url ? '<a href="' + escapeHtml(s.website_url) + '" target="_blank" rel="noopener" style="color:var(--accent)">' + escapeHtml(s.website_url) + '</a>' : '—';
+      var sourceClass = s.source === 'manual' ? 'source-manual' : 'source-ai';
+      var sourceLabel = s.source === 'manual' ? 'Свой' : 'AI-поиск';
+      html += '<tr>' +
+        '<td><div class="supplier-name">' + escapeHtml(s.company_name) + '</div></td>' +
         '<td>' + website + '</td>' +
-        '<td>' + escapeHtml(s.reason || '') + '</td>' +
-        '<td class="supplier-contacts" id="contacts-' + s.id + '"><button type="button" class="btn btn-sm btn-outline btn-load-contacts" data-sid="' + s.id + '">Показать</button></td>' +
+        '<td><span class="source-tag ' + sourceClass + '">' + sourceLabel + '</span></td>' +
+        '<td style="color:var(--text-secondary);font-size:13px">' + escapeHtml(s.reason || '') + '</td>' +
+        '<td class="supplier-contacts" id="contacts-' + s.id + '"><button type="button" class="btn btn-sm btn-secondary btn-load-contacts" data-sid="' + s.id + '">Показать</button></td>' +
         '</tr>';
     }
-    html += '</tbody></table></div>';
-    html += '<div style="margin-top:var(--space-3)"><button type="button" id="btn-add-supplier-open" class="btn btn-sm btn-outline">+ Добавить вручную</button></div>';
-    suppliersContainer.innerHTML = html;
+    html += '</tbody></table>';
+    container.innerHTML = html;
 
     // Bind contact loaders
-    var contactBtns = suppliersContainer.querySelectorAll('.btn-load-contacts');
+    var contactBtns = container.querySelectorAll('.btn-load-contacts');
     for (var j = 0; j < contactBtns.length; j++) {
       contactBtns[j].addEventListener('click', function () {
         var sid = this.getAttribute('data-sid');
         loadContacts(sid);
       });
     }
-
-    // Add supplier button
-    var addBtn = $('btn-add-supplier-open');
-    if (addBtn) addBtn.addEventListener('click', function () { openModal('modal-add-supplier'); });
   }
 
   async function loadContacts(supplierId) {
@@ -491,9 +595,9 @@
       var html = '';
       for (var i = 0; i < contacts.length; i++) {
         var c = contacts[i];
-        html += '<div style="font-size:var(--font-size-sm)">' +
-          '<a href="mailto:' + escapeHtml(c.email) + '">' + escapeHtml(c.email) + '</a>' +
-          (c.source ? ' <span style="color:var(--text-muted)">(' + escapeHtml(c.source) + ')</span>' : '') +
+        html += '<div style="font-size:12px">' +
+          '<a href="mailto:' + escapeHtml(c.email) + '" style="color:var(--accent)">' + escapeHtml(c.email) + '</a>' +
+          (c.source ? ' <span style="color:var(--text-secondary)">(' + escapeHtml(c.source) + ')</span>' : '') +
           '</div>';
       }
       cell.innerHTML = html;
@@ -525,6 +629,11 @@
       }
     });
 
+    $('btn-refresh-search').addEventListener('click', function () {
+      checkSearchStatus();
+      loadSuppliers();
+    });
+
     $('btn-export').addEventListener('click', async function () {
       if (!currentPurchase) return;
       try {
@@ -550,6 +659,11 @@
   // ── Add supplier manually ──────────────────────────────────────────
 
   function initAddSupplier() {
+    $('btn-add-supplier').addEventListener('click', function () {
+      $('form-add-supplier').reset();
+      openModal('modal-add-supplier');
+    });
+
     $('form-add-supplier').addEventListener('submit', async function (e) {
       e.preventDefault();
       if (!currentPurchase) return;
@@ -566,16 +680,12 @@
           },
         });
 
-        // Add contacts if provided
-        var emails = [];
-        var e1 = $('inp-supplier-email').value.trim();
-        var e2 = $('inp-supplier-email-2').value.trim();
-        if (e1) emails.push(e1);
-        if (e2) emails.push(e2);
-        for (var i = 0; i < emails.length; i++) {
+        // Add contact if email provided
+        var email = $('inp-supplier-email').value.trim();
+        if (email) {
           await API.apiFetch('/suppliers/' + supplier.id + '/contacts', {
             method: 'POST',
-            body: { email: emails[i], source: 'manual' },
+            body: { email: email, source: 'manual' },
           });
         }
 
@@ -596,23 +706,21 @@
       if (!currentPurchase) { showError('Выберите закупку'); return; }
       try {
         this.disabled = true;
-        emailDraft.innerHTML = '<div class="empty-state"><p class="empty-state-text">Генерация письма...</p></div>';
+        $('email-draft').innerHTML = '<div class="empty-state">Генерация письма...</div>';
         var result = await API.apiFetch('/purchases/' + currentPurchase.id + '/email-draft', {
           method: 'POST',
         });
-        var html = '<div style="border:1px solid var(--border);border-radius:var(--radius);padding:var(--space-4)">' +
-          '<div style="margin-bottom:var(--space-3)"><strong>Тема:</strong> ' + escapeHtml(result.subject) + '</div>' +
-          '<div style="white-space:pre-wrap;line-height:1.6">' + escapeHtml(result.body) + '</div>' +
-          '<div style="margin-top:var(--space-3);display:flex;gap:var(--space-2)">' +
-          '<button type="button" class="btn btn-sm btn-outline" id="btn-copy-subject">Копировать тему</button>' +
-          '<button type="button" class="btn btn-sm btn-outline" id="btn-copy-body">Копировать текст</button>' +
-          '</div></div>';
-        emailDraft.innerHTML = html;
+        var html = '<div class="letter-preview">' + escapeHtml(result.body) + '</div>' +
+          '<div style="margin-top:12px;display:flex;gap:8px">' +
+          '<button type="button" class="btn btn-sm btn-secondary" id="btn-copy-subject">Копировать тему</button>' +
+          '<button type="button" class="btn btn-sm btn-secondary" id="btn-copy-body">Копировать текст</button>' +
+          '</div>';
+        $('email-draft').innerHTML = html;
         $('btn-copy-subject').addEventListener('click', function () { copyText(result.subject); });
         $('btn-copy-body').addEventListener('click', function () { copyText(result.body); });
       } catch (e) {
         showError('Ошибка генерации письма: ' + e.message);
-        emailDraft.innerHTML = '<div class="empty-state"><p class="empty-state-text">Не удалось сгенерировать письмо</p></div>';
+        $('email-draft').innerHTML = '<div class="empty-state">Не удалось сгенерировать письмо</div>';
       } finally {
         this.disabled = false;
       }
@@ -628,60 +736,61 @@
       renderBids();
       renderBidSelector();
       populateBidSupplierDropdown();
+      // Update badge
+      var badge = $('badge-correspondence');
+      if (currentBids.length > 0) {
+        badge.textContent = currentBids.length;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
     } catch (e) {
       showError('Ошибка загрузки КП: ' + e.message);
     }
   }
 
   function renderBids() {
+    var container = $('bids-container');
     if (!currentBids.length) {
-      bidsContainer.innerHTML = '<div class="empty-state"><p class="empty-state-text">Коммерческие предложения пока не загружены</p></div>';
+      container.innerHTML = '<div class="empty-state">Коммерческие предложения пока не загружены</div>';
       return;
     }
-    var html = '';
+    var html = '<div class="proposals-grid">';
     for (var i = 0; i < currentBids.length; i++) {
       var bid = currentBids[i];
       var lotCount = bid.lots ? bid.lots.length : 0;
-      html += '<div class="card mb-3" style="border:1px solid var(--border)">' +
-        '<div class="card-header"><h4 class="card-title" style="font-size:var(--font-size-base)">' +
-        escapeHtml(bid.supplier_name || 'Поставщик') + '</h4>' +
-        '<span class="tag tag-default">' + lotCount + ' лот' + pluralParams(lotCount) + '</span></div>' +
-        '<div class="card-body">';
-      if (bid.supplier_contact) {
-        html += '<div style="font-size:var(--font-size-sm);color:var(--text-muted);margin-bottom:var(--space-2)">Контакт: ' + escapeHtml(bid.supplier_contact) + '</div>';
-      }
-      if (bid.lots && bid.lots.length) {
-        html += '<div class="table-wrap"><table class="table table-compact"><thead><tr><th>Позиция</th><th>Цена</th></tr></thead><tbody>';
-        for (var j = 0; j < bid.lots.length; j++) {
-          var bl = bid.lots[j];
-          html += '<tr><td>' + escapeHtml(bl.name) + '</td><td>' + (bl.price != null ? bl.price.toLocaleString('ru-RU') : '—') + '</td></tr>';
-        }
-        html += '</tbody></table></div>';
-      }
-      html += '</div></div>';
-    }
-    bidsContainer.innerHTML = html;
-  }
-
-  function renderBidSelector() {
-    if (!currentBids.length) {
-      comparisonBidSelector.innerHTML = '<div class="empty-state"><p class="empty-state-text">Сначала загрузите коммерческие предложения во вкладке «Письма и КП»</p></div>';
-      $('btn-compare').disabled = true;
-      return;
-    }
-    var html = '<div style="display:flex;flex-wrap:wrap;gap:var(--space-3)">';
-    for (var i = 0; i < currentBids.length; i++) {
-      var bid = currentBids[i];
-      var selected = selectedBidId === bid.id ? ' border-color:var(--primary);background:var(--primary-light,rgba(37,99,235,0.05))' : '';
-      html += '<div class="bid-select-card" data-bid-id="' + bid.id + '" style="padding:var(--space-3);border:2px solid var(--border);border-radius:var(--radius);cursor:pointer;min-width:180px;transition:all .15s;' + selected + '">' +
-        '<div style="font-weight:500">' + escapeHtml(bid.supplier_name || 'Поставщик') + '</div>' +
-        '<div style="font-size:var(--font-size-sm);color:var(--text-muted)">' + (bid.lots ? bid.lots.length : 0) + ' позиций</div>' +
+      html += '<div class="proposal-card">' +
+        '<div class="proposal-supplier">' + escapeHtml(bid.supplier_name || 'Поставщик') + '</div>' +
+        '<div class="proposal-date">' + (bid.supplier_contact ? escapeHtml(bid.supplier_contact) : '') + '</div>' +
+        '<div class="proposal-items">' + lotCount + ' позици' + (lotCount === 1 ? 'я' : lotCount < 5 ? 'и' : 'й') + '</div>' +
         '</div>';
     }
     html += '</div>';
-    comparisonBidSelector.innerHTML = html;
+    container.innerHTML = html;
+  }
 
-    var cards = comparisonBidSelector.querySelectorAll('.bid-select-card');
+  function renderBidSelector() {
+    var container = $('comparison-bid-selector');
+    if (!currentBids.length) {
+      container.innerHTML = '<div class="empty-state">Сначала загрузите КП во вкладке «Письма и КП»</div>';
+      $('btn-compare').disabled = true;
+      return;
+    }
+    var html = '<div class="comp-suppliers-list">';
+    for (var i = 0; i < currentBids.length; i++) {
+      var bid = currentBids[i];
+      var active = selectedBidId === bid.id ? ' active' : '';
+      html += '<div class="comp-supplier-tab' + active + '" data-bid-id="' + bid.id + '">' +
+        '<span class="comp-supplier-indicator comp-supplier-indicator--pending"></span>' +
+        '<div>' +
+        '<div class="comp-supplier-tab-name">' + escapeHtml(bid.supplier_name || 'Поставщик') + '</div>' +
+        '<div class="comp-supplier-tab-meta">' + (bid.lots ? bid.lots.length : 0) + ' позиций</div>' +
+        '</div></div>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
+
+    var cards = container.querySelectorAll('.comp-supplier-tab');
     for (var j = 0; j < cards.length; j++) {
       cards[j].addEventListener('click', function () {
         selectedBidId = parseInt(this.getAttribute('data-bid-id'), 10);
@@ -704,8 +813,20 @@
   function initAddBid() {
     $('btn-add-bid').addEventListener('click', function () {
       $('form-add-bid').reset();
+      $('bid-file-label').textContent = 'Нажмите для загрузки';
       populateBidSupplierDropdown();
       openModal('modal-add-bid');
+    });
+
+    // File upload zone
+    $('bid-file-upload').addEventListener('click', function () {
+      $('inp-bid-file').click();
+    });
+    $('inp-bid-file').addEventListener('change', function () {
+      var file = this.files[0];
+      if (file) {
+        $('bid-file-label').textContent = file.name;
+      }
     });
 
     $('form-add-bid').addEventListener('submit', async function (e) {
@@ -771,7 +892,7 @@
       if (!currentPurchase || !selectedBidId) return;
       try {
         this.disabled = true;
-        comparisonResults.innerHTML = '<div class="empty-state"><p class="empty-state-text">Сравнение запущено...</p></div>';
+        $('comparison-results').innerHTML = '<div class="card"><div class="card-body"><div class="empty-state">Сравнение запущено...</div></div></div>';
         await API.apiFetch('/purchases/' + currentPurchase.id + '/bids/' + selectedBidId + '/comparison', {
           method: 'POST',
         });
@@ -788,13 +909,13 @@
     try {
       var result = await API.apiFetch('/purchases/' + currentPurchase.id + '/bids/' + selectedBidId + '/comparison');
       if (result.status === 'queued' || result.status === 'in_progress') {
-        comparisonResults.innerHTML = '<div class="empty-state"><p class="empty-state-text">Сравнение в процессе...</p></div>';
+        $('comparison-results').innerHTML = '<div class="card"><div class="card-body"><div class="search-status"><div class="spinner"></div><div><strong>Сравнение в процессе...</strong></div></div></div></div>';
         comparisonPollingTimer = setTimeout(pollComparison, 3000);
       } else if (result.status === 'done') {
         renderComparison(result.rows || []);
         $('btn-compare').disabled = false;
       } else {
-        comparisonResults.innerHTML = '<div class="alert alert-danger">Ошибка сравнения</div>';
+        $('comparison-results').innerHTML = '<div class="card"><div class="card-body"><div class="info-block" style="background:var(--danger-bg);color:var(--danger)">Ошибка сравнения</div></div></div>';
         $('btn-compare').disabled = false;
       }
     } catch (e) {
@@ -805,53 +926,59 @@
 
   function renderComparison(rows) {
     if (!rows.length) {
-      comparisonResults.innerHTML = '<div class="empty-state"><p class="empty-state-text">Нет данных для сравнения</p></div>';
+      $('comparison-results').innerHTML = '<div class="card"><div class="card-body"><div class="empty-state">Нет данных для сравнения</div></div></div>';
       return;
     }
 
     var html = '';
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
-      var confPercent = row.confidence != null ? Math.round(row.confidence * 100) : null;
-      var confBadge = confPercent != null ? '<span class="tag tag-default">' + confPercent + '%</span>' : '';
+      var totalChars = row.characteristic_rows ? row.characteristic_rows.length : 0;
+      var matchedChars = 0;
+      var unmatchedChars = 0;
 
-      html += '<div class="card mb-4" style="border:1px solid var(--border)">' +
-        '<div class="card-header">' +
-        '<div><strong>ТЗ:</strong> ' + escapeHtml(row.lot_name) + ' &mdash; <strong>КП:</strong> ' + escapeHtml(row.bid_lot_name || '—') + '</div>' +
-        confBadge +
-        '</div>';
+      if (row.characteristic_rows) {
+        for (var m = 0; m < row.characteristic_rows.length; m++) {
+          if (row.characteristic_rows[m].status === 'matched') matchedChars++;
+          else unmatchedChars++;
+        }
+      }
+
+      var lotIndicator = unmatchedChars > 0 ? 'comp-lot-indicator--warn' : 'comp-lot-indicator--ok';
+      var lotBadgeClass = unmatchedChars > 0 ? 'comp-lot-badge--warn' : 'comp-lot-badge--ok';
+      var lotBadgeText = unmatchedChars > 0 ? unmatchedChars + ' расхождени' + (unmatchedChars === 1 ? 'е' : unmatchedChars < 5 ? 'я' : 'й') : 'Всё совпадает';
+
+      html += '<div class="card section-gap"><div class="comp-lot" data-expanded="true">' +
+        '<div class="comp-lot-header" onclick="this.parentElement.dataset.expanded = this.parentElement.dataset.expanded === \'true\' ? \'false\' : \'true\'; var body = this.nextElementSibling; body.style.display = this.parentElement.dataset.expanded === \'true\' ? \'block\' : \'none\'; this.querySelector(\'.comp-lot-arrow\').style.transform = this.parentElement.dataset.expanded === \'true\' ? \'\' : \'rotate(-90deg)\'">' +
+        '<div class="comp-lot-header-left">' +
+        '<span class="comp-lot-arrow">&#9660;</span>' +
+        '<span class="comp-lot-indicator ' + lotIndicator + '"></span>' +
+        '<span class="comp-lot-title">' + escapeHtml(row.lot_name) + '</span>' +
+        '</div>' +
+        '<div class="comp-lot-header-right">' +
+        '<span class="comp-lot-stat">' + matchedChars + ' из ' + totalChars + ' совпадают</span>' +
+        '<span class="comp-lot-badge ' + lotBadgeClass + '">' + lotBadgeText + '</span>' +
+        '</div></div>';
 
       if (row.characteristic_rows && row.characteristic_rows.length) {
-        html += '<div class="card-body" style="padding:0"><div class="table-wrap"><table class="table table-compact">' +
-          '<thead><tr><th style="width:45%">Требование ТЗ</th><th style="width:45%">Предложение КП</th><th style="width:10%">Статус</th></tr></thead><tbody>';
+        html += '<div class="comp-lot-body"><table class="comparison-table">' +
+          '<thead><tr><th>Характеристика</th><th>Требование ТЗ</th><th>Предложение КП</th></tr></thead><tbody>';
         for (var j = 0; j < row.characteristic_rows.length; j++) {
           var cr = row.characteristic_rows[j];
-          var colorMap = {
-            matched: 'background:var(--success-light, rgba(34,197,94,0.1))',
-            unmatched_tz: 'background:var(--danger-light, rgba(239,68,68,0.1))',
-            unmatched_kp: 'background:var(--gray-light, rgba(156,163,175,0.1))',
-          };
-          var statusLabel = {
-            matched: 'Совпадает',
-            unmatched_tz: 'Нет в КП',
-            unmatched_kp: 'Нет в ТЗ',
-          };
-          var style = colorMap[cr.status] || '';
-          html += '<tr style="' + style + '">' +
+          var statusClass = cr.status === 'matched' ? 'match' : cr.status === 'unmatched_tz' ? 'mismatch' : 'partial';
+          var statusIcon = cr.status === 'matched' ? '&#10003;' : cr.status === 'unmatched_tz' ? '&#10007;' : '&#9888;';
+          html += '<tr>' +
+            '<td>' + escapeHtml(cr.left_text || cr.name || '') + '</td>' +
             '<td>' + escapeHtml(cr.left_text || '') + '</td>' +
-            '<td>' + escapeHtml(cr.right_text || '') + '</td>' +
-            '<td><span class="tag ' + (cr.status === 'matched' ? 'tag-success' : cr.status === 'unmatched_tz' ? 'tag-danger' : 'tag-default') + '">' +
-            (statusLabel[cr.status] || cr.status) + '</span></td></tr>';
+            '<td class="' + statusClass + '"><span class="check-icon">' + statusIcon + '</span> ' + escapeHtml(cr.right_text || '—') + '</td>' +
+            '</tr>';
         }
-        html += '</tbody></table></div></div>';
+        html += '</tbody></table></div>';
       }
 
-      if (row.reason) {
-        html += '<div class="card-body" style="border-top:1px solid var(--border);font-size:var(--font-size-sm);color:var(--text-muted)">' + escapeHtml(row.reason) + '</div>';
-      }
-      html += '</div>';
+      html += '</div></div>';
     }
-    comparisonResults.innerHTML = html;
+    $('comparison-results').innerHTML = html;
   }
 
   // ── Polling cleanup ────────────────────────────────────────────────
@@ -867,8 +994,10 @@
   document.addEventListener('DOMContentLoaded', function () {
     initModals();
     initTabs();
-    initSidebar();
+    initHeader();
+    initPurchaseSelector();
     initCreatePurchase();
+    initTzUpload();
     initAddLot();
     initSupplierSearch();
     initAddSupplier();
