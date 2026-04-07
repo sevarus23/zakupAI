@@ -24,4 +24,5 @@ jobs:
             grep -q '^JWT_SECRET_KEY=' .env 2>/dev/null || echo "JWT_SECRET_KEY=${JWT_SECRET_KEY}" >> .env
             docker compose -f docker-compose.prod.yml build
             docker compose -f docker-compose.prod.yml up -d
+            docker compose -f docker-compose.prod.yml restart nginx
             docker image prune -f
