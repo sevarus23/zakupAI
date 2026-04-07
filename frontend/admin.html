@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Админ-панель — zakupAI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/main.css" />
+    <link rel="stylesheet" href="css/admin.css" />
+  </head>
+  <body>
+
+    <!-- ======== Header Bar ======== -->
+    <header class="admin-header" style="
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+      padding: var(--space-4) var(--space-8);
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-color);
+      box-shadow: var(--shadow-sm);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    ">
+      <div style="display:flex; align-items:center; gap:var(--space-5);">
+        <span style="
+          font-size: var(--font-size-xl);
+          font-weight: 700;
+          letter-spacing: -0.02em;
+          background: var(--color-gradient);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        ">zakupAI</span>
+        <span style="
+          font-size: var(--font-size-md);
+          font-weight: 600;
+          color: var(--text-secondary);
+        ">Админ-панель</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:var(--space-4);">
+        <span id="admin-user-name" style="font-size:var(--font-size-sm); color:var(--text-muted);"></span>
+        <a href="/" style="
+          font-size: var(--font-size-sm);
+          color: var(--color-indigo);
+          font-weight: 500;
+          white-space: nowrap;
+        ">&larr; В приложение</a>
+        <button onclick="Auth.logout()" class="btn btn-sm btn-outline" style="white-space:nowrap;">Выйти</button>
+      </div>
+    </header>
+
+    <!-- ======== Main Content ======== -->
+    <main style="padding: var(--space-8); max-width: 1400px; width: 100%; margin: 0 auto;">
+
+      <!-- ---- Dashboard ---- -->
+      <section id="dashboard" style="margin-bottom: var(--space-8);">
+        <div class="admin-stats">
+
+          <div class="stat-card" id="stat-users">
+            <div class="stat-content">
+              <div class="stat-value" data-value>—</div>
+              <div class="stat-label">Пользователей</div>
+            </div>
+            <div class="stat-icon stat-icon-indigo">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+          </div>
+
+          <div class="stat-card" id="stat-new-users">
+            <div class="stat-content">
+              <div class="stat-value" data-value>—</div>
+              <div class="stat-label">Новых сегодня</div>
+            </div>
+            <div class="stat-icon stat-icon-emerald">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+            </div>
+          </div>
+
+          <div class="stat-card" id="stat-purchases">
+            <div class="stat-content">
+              <div class="stat-value" data-value>—</div>
+              <div class="stat-label">Закупок всего</div>
+            </div>
+            <div class="stat-icon stat-icon-amber">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            </div>
+          </div>
+
+          <div class="stat-card" id="stat-purchases-today">
+            <div class="stat-content">
+              <div class="stat-value" data-value>—</div>
+              <div class="stat-label">Закупок сегодня</div>
+            </div>
+            <div class="stat-icon stat-icon-blue">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ---- Users Section ---- -->
+      <section id="users-section" class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="admin-section-title">Пользователи</h2>
+          <div class="admin-toolbar">
+            <div class="admin-search">
+              <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="user-search" class="form-input" placeholder="Поиск по email или имени..." />
+            </div>
+          </div>
+        </div>
+        <div class="admin-table-wrap">
+          <div class="table-wrap">
+            <table class="admin-table" id="users-table">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>ФИО</th>
+                  <th>Организация</th>
+                  <th>Закупок</th>
+                  <th>Дата регистрации</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody id="users-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---- Purchases Section ---- -->
+      <section id="purchases-section" class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="admin-section-title">Закупки</h2>
+          <div class="admin-toolbar">
+            <div class="admin-filter">
+              <label for="filter-status">Статус:</label>
+              <select id="filter-status" class="form-select">
+                <option value="">Все</option>
+                <option value="draft">draft</option>
+                <option value="active">active</option>
+                <option value="completed">completed</option>
+              </select>
+            </div>
+            <div class="admin-filter">
+              <label for="filter-user">Пользователь:</label>
+              <select id="filter-user" class="form-select">
+                <option value="">Все</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="admin-table-wrap">
+          <div class="table-wrap">
+            <table class="admin-table" id="purchases-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Пользователь</th>
+                  <th>Название</th>
+                  <th>Статус</th>
+                  <th>Лотов</th>
+                  <th>Дата</th>
+                </tr>
+              </thead>
+              <tbody id="purchases-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ======== Scripts ======== -->
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+
+    <script>
+      (function () {
+        'use strict';
+
+        // --- Auth guard ---
+        Auth.requireAdmin();
+
+        // --- Show current user in header ---
+        var currentUser = Auth.getUser();
+        var nameEl = document.getElementById('admin-user-name');
+        if (currentUser) {
+          nameEl.textContent = currentUser.full_name || currentUser.email || '';
+        }
+
+        // --- Helpers ---
+        function formatDate(dateStr) {
+          if (!dateStr) return '—';
+          var d = new Date(dateStr);
+          if (isNaN(d.getTime())) return '—';
+          var pad = function (n) { return n < 10 ? '0' + n : n; };
+          return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + '.' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+        }
+
+        function escapeHtml(str) {
+          if (!str) return '';
+          var div = document.createElement('div');
+          div.textContent = str;
+          return div.innerHTML;
+        }
+
+        function statusBadge(isActive) {
+          if (isActive) {
+            return '<span class="admin-badge admin-badge-active">Активен</span>';
+          }
+          return '<span class="admin-badge admin-badge-blocked">Заблокирован</span>';
+        }
+
+        function purchaseStatusBadge(status) {
+          var map = {
+            draft: { cls: 'admin-badge-draft', label: 'Черновик' },
+            active: { cls: 'admin-badge-active', label: 'Активна' },
+            completed: { cls: 'admin-badge-completed', label: 'Завершена' },
+          };
+          var info = map[status] || { cls: 'admin-badge-draft', label: status || '—' };
+          return '<span class="admin-badge ' + info.cls + '">' + escapeHtml(info.label) + '</span>';
+        }
+
+        // --- Dashboard ---
+        async function loadDashboard() {
+          try {
+            var data = await API.apiFetch('/admin/dashboard');
+            if (!data) return;
+            document.querySelector('#stat-users [data-value]').textContent = data.total_users != null ? data.total_users : '—';
+            document.querySelector('#stat-new-users [data-value]').textContent = data.new_users_today != null ? data.new_users_today : '—';
+            document.querySelector('#stat-purchases [data-value]').textContent = data.total_purchases != null ? data.total_purchases : '—';
+            document.querySelector('#stat-purchases-today [data-value]').textContent = data.purchases_today != null ? data.purchases_today : '—';
+          } catch (err) {
+            console.error('Dashboard load error:', err);
+          }
+        }
+
+        // --- Users ---
+        async function loadUsers(query) {
+          try {
+            var path = '/admin/users';
+            if (query) {
+              path += '?q=' + encodeURIComponent(query);
+            }
+            var users = await API.apiFetch(path);
+            if (!users) return;
+            var tbody = document.getElementById('users-tbody');
+            if (!Array.isArray(users)) {
+              users = users.items || users.data || [];
+            }
+            tbody.innerHTML = users.map(function (u) {
+              return '<tr>'
+                + '<td>' + escapeHtml(u.email) + '</td>'
+                + '<td>' + escapeHtml(u.full_name || '—') + '</td>'
+                + '<td>' + escapeHtml(u.organization || '—') + '</td>'
+                + '<td>' + (u.purchases_count != null ? u.purchases_count : '—') + '</td>'
+                + '<td>' + formatDate(u.created_at) + '</td>'
+                + '<td>' + statusBadge(u.is_active !== false) + '</td>'
+                + '</tr>';
+            }).join('');
+
+            // Populate user filter in purchases section
+            var filterUser = document.getElementById('filter-user');
+            var currentVal = filterUser.value;
+            filterUser.innerHTML = '<option value="">Все</option>';
+            users.forEach(function (u) {
+              var opt = document.createElement('option');
+              opt.value = u.id;
+              opt.textContent = u.full_name || u.email;
+              filterUser.appendChild(opt);
+            });
+            filterUser.value = currentVal;
+          } catch (err) {
+            console.error('Users load error:', err);
+          }
+        }
+
+        // --- Purchases ---
+        async function loadPurchases(filters) {
+          try {
+            var params = [];
+            if (filters) {
+              if (filters.user_id) params.push('user_id=' + encodeURIComponent(filters.user_id));
+              if (filters.status) params.push('status=' + encodeURIComponent(filters.status));
+            }
+            var path = '/admin/purchases';
+            if (params.length) path += '?' + params.join('&');
+
+            var purchases = await API.apiFetch(path);
+            if (!purchases) return;
+            var tbody = document.getElementById('purchases-tbody');
+            if (!Array.isArray(purchases)) {
+              purchases = purchases.items || purchases.data || [];
+            }
+            tbody.innerHTML = purchases.map(function (p) {
+              return '<tr>'
+                + '<td>' + (p.id || '—') + '</td>'
+                + '<td>' + escapeHtml(p.user_email || p.user_name || '—') + '</td>'
+                + '<td>' + escapeHtml(p.name || p.title || '—') + '</td>'
+                + '<td>' + purchaseStatusBadge(p.status) + '</td>'
+                + '<td>' + (p.lots_count != null ? p.lots_count : '—') + '</td>'
+                + '<td>' + formatDate(p.created_at) + '</td>'
+                + '</tr>';
+            }).join('');
+          } catch (err) {
+            console.error('Purchases load error:', err);
+          }
+        }
+
+        // --- Debounced search ---
+        var searchTimer = null;
+        var searchInput = document.getElementById('user-search');
+        searchInput.addEventListener('input', function () {
+          clearTimeout(searchTimer);
+          searchTimer = setTimeout(function () {
+            loadUsers(searchInput.value.trim());
+          }, 300);
+        });
+
+        // --- Purchases filters ---
+        var filterStatus = document.getElementById('filter-status');
+        var filterUser = document.getElementById('filter-user');
+
+        function getFilters() {
+          return {
+            status: filterStatus.value,
+            user_id: filterUser.value,
+          };
+        }
+
+        filterStatus.addEventListener('change', function () {
+          loadPurchases(getFilters());
+        });
+        filterUser.addEventListener('change', function () {
+          loadPurchases(getFilters());
+        });
+
+        // --- Initial load ---
+        loadDashboard();
+        loadUsers('');
+        loadPurchases(getFilters());
+      })();
+    </script>
+
+  </body>
+</html>

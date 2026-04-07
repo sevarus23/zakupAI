@@ -1,15 +1,603 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>zakupAI</title>
+    <title>zakupAI — Помощник в закупках</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/main.css" />
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <div class="app-shell">
+
+      <!-- ============================================================
+           Sidebar
+           ============================================================ -->
+      <aside class="sidebar" aria-label="Боковая панель">
+
+        <!-- Logo -->
+        <div class="sidebar-logo">
+          <h1>zakupAI</h1>
+          <p class="logo-subtitle">Помощник в закупках</p>
+        </div>
+
+        <!-- New purchase button -->
+        <div style="padding: var(--space-4) var(--space-3);">
+          <button
+            type="button"
+            id="btn-new-purchase"
+            class="btn btn-primary"
+            style="width: 100%;"
+          >
+            + Новая закупка
+          </button>
+        </div>
+
+        <!-- Purchase list -->
+        <nav class="sidebar-nav" id="purchase-list" aria-label="Список закупок">
+          <!-- Purchase cards populated dynamically by app.js -->
+        </nav>
+
+        <!-- Bottom section: user info, admin, logout -->
+        <div class="sidebar-user">
+          <div class="sidebar-user-info" id="user-info">
+            <div class="sidebar-user-avatar" id="user-avatar" aria-hidden="true"></div>
+            <div>
+              <div class="sidebar-user-name" id="user-name"></div>
+              <div class="sidebar-user-role" id="user-role"></div>
+            </div>
+          </div>
+          <a
+            href="/admin.html"
+            id="admin-link"
+            class="sidebar-nav-btn hidden"
+            aria-label="Перейти в админ-панель"
+          >
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            Админ-панель
+          </a>
+          <button type="button" id="btn-logout" class="sidebar-logout-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Выйти
+          </button>
+        </div>
+      </aside>
+
+      <!-- Mobile sidebar toggle -->
+      <button type="button" class="sidebar-toggle" id="sidebar-toggle" aria-label="Открыть меню">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
+
+      <!-- ============================================================
+           Main Content
+           ============================================================ -->
+      <main class="app-main">
+
+        <!-- Context bar -->
+        <header class="context-bar">
+          <div class="context-bar-left">
+            <h2 class="context-bar-title" id="purchase-title">Выберите закупку</h2>
+          </div>
+          <div class="context-bar-right">
+            <span class="badge badge-inactive" id="purchase-status">
+              <span class="badge-dot" aria-hidden="true"></span>
+              <span id="purchase-status-text">--</span>
+            </span>
+          </div>
+        </header>
+
+        <!-- Tab navigation -->
+        <nav class="tabs" aria-label="Разделы закупки">
+          <button
+            type="button"
+            class="tab-btn active"
+            data-tab="search"
+            aria-selected="true"
+            role="tab"
+            aria-controls="tab-search"
+          >
+            Поиск поставщиков
+          </button>
+          <button
+            type="button"
+            class="tab-btn"
+            data-tab="correspondence"
+            aria-selected="false"
+            role="tab"
+            aria-controls="tab-correspondence"
+          >
+            Письма и КП
+          </button>
+          <button
+            type="button"
+            class="tab-btn"
+            data-tab="comparison"
+            aria-selected="false"
+            role="tab"
+            aria-controls="tab-comparison"
+          >
+            Сравнение ТЗ и КП
+          </button>
+          <button
+            type="button"
+            class="tab-btn"
+            data-tab="regime"
+            aria-selected="false"
+            role="tab"
+            aria-controls="tab-regime"
+          >
+            Нацрежим
+            <span class="tag tag-info" style="margin-left: var(--space-2); font-size: 0.65rem;">Скоро</span>
+          </button>
+        </nav>
+
+        <!-- Tab content area -->
+        <div class="app-content">
+
+          <!-- ==================== Tab: Search ==================== -->
+          <div id="tab-search" class="tab-content active" role="tabpanel" aria-labelledby="tab-search">
+            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: var(--space-6);">
+
+              <!-- Left: Lots from TZ -->
+              <section aria-label="Лоты из технического задания">
+                <div class="card">
+                  <div class="card-header">
+                    <h3 class="card-title">Лоты из ТЗ</h3>
+                    <button type="button" id="btn-add-lot" class="btn btn-sm btn-outline">
+                      + Добавить лот
+                    </button>
+                  </div>
+                  <div class="card-body" id="lots-container">
+                    <div class="empty-state">
+                      <p class="empty-state-text">Загрузите ТЗ или добавьте лоты вручную</p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Right: Search results -->
+              <section aria-label="Результаты поиска поставщиков">
+                <div class="card">
+                  <div class="card-header">
+                    <h3 class="card-title">Результаты поиска</h3>
+                    <div class="flex items-center gap-2">
+                      <button type="button" id="btn-search-suppliers" class="btn btn-sm btn-primary">
+                        Найти поставщиков
+                      </button>
+                      <button type="button" id="btn-export" class="btn btn-sm btn-outline hidden">
+                        Экспорт в Excel
+                      </button>
+                    </div>
+                  </div>
+                  <div class="card-body">
+                    <div id="search-status" class="hidden mb-4"></div>
+                    <div id="suppliers-container">
+                      <div class="empty-state">
+                        <p class="empty-state-text">Нажмите «Найти поставщиков» для начала поиска</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+            </div>
+          </div>
+
+          <!-- ==================== Tab: Correspondence ==================== -->
+          <div id="tab-correspondence" class="tab-content" role="tabpanel" aria-labelledby="tab-correspondence">
+
+            <!-- Email generation -->
+            <section class="card mb-6" aria-label="Генерация письма">
+              <div class="card-header">
+                <h3 class="card-title">Письмо поставщикам</h3>
+                <button type="button" id="btn-generate-email" class="btn btn-sm btn-primary">
+                  Сгенерировать письмо
+                </button>
+              </div>
+              <div class="card-body" id="email-draft">
+                <div class="empty-state">
+                  <p class="empty-state-text">Нажмите «Сгенерировать письмо», чтобы создать черновик на основе ТЗ</p>
+                </div>
+              </div>
+            </section>
+
+            <!-- Commercial proposals (bids) -->
+            <section class="card mb-6" aria-label="Коммерческие предложения">
+              <div class="card-header">
+                <h3 class="card-title">Коммерческие предложения</h3>
+                <button type="button" id="btn-add-bid" class="btn btn-sm btn-outline">
+                  + Загрузить КП
+                </button>
+              </div>
+              <div class="card-body" id="bids-container">
+                <div class="empty-state">
+                  <p class="empty-state-text">Коммерческие предложения пока не загружены</p>
+                </div>
+              </div>
+            </section>
+
+            <!-- Coming soon -->
+            <div class="alert alert-info">
+              <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+              </svg>
+              <div>
+                <strong>В разработке:</strong> Чат с поставщиками, PDF-письмо на фирменном бланке
+              </div>
+            </div>
+          </div>
+
+          <!-- ==================== Tab: Comparison ==================== -->
+          <div id="tab-comparison" class="tab-content" role="tabpanel" aria-labelledby="tab-comparison">
+
+            <!-- Bid selector -->
+            <section class="card mb-6" aria-label="Выбор КП для сравнения">
+              <div class="card-header">
+                <h3 class="card-title">Выберите КП для сравнения с ТЗ</h3>
+              </div>
+              <div class="card-body" id="comparison-bid-selector">
+                <div class="empty-state">
+                  <p class="empty-state-text">Сначала загрузите коммерческие предложения во вкладке «Письма и КП»</p>
+                </div>
+              </div>
+              <div class="card-footer">
+                <button type="button" id="btn-compare" class="btn btn-primary" disabled>
+                  Сравнить с ТЗ
+                </button>
+              </div>
+            </section>
+
+            <!-- Comparison results -->
+            <section id="comparison-results" aria-label="Результаты сравнения">
+              <!-- Populated dynamically -->
+            </section>
+          </div>
+
+          <!-- ==================== Tab: National Regime ==================== -->
+          <div id="tab-regime" class="tab-content" role="tabpanel" aria-labelledby="tab-regime">
+            <div class="card">
+              <div class="card-body">
+                <div class="empty-state">
+                  <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                  </svg>
+                  <h3 class="empty-state-title">В разработке</h3>
+                  <p class="empty-state-text">Функции проверки национального режима появятся в ближайших обновлениях</p>
+                  <ul style="text-align: left; font-size: var(--font-size-sm); color: var(--text-muted); line-height: 2;">
+                    <li>&#x2022; Проверка реестра ПП-719</li>
+                    <li>&#x2022; Баллы локализации</li>
+                    <li>&#x2022; Каталог ГИСП + характеристики</li>
+                    <li>&#x2022; Проверка ПП-1875</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+
+    <!-- ============================================================
+         Modals
+         ============================================================ -->
+
+    <!-- Modal: New Purchase -->
+    <div class="modal-overlay" id="modal-new-purchase" aria-modal="true" role="dialog" aria-labelledby="modal-new-purchase-title">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 class="modal-title" id="modal-new-purchase-title">Новая закупка</h3>
+          <button type="button" class="modal-close" data-modal-close aria-label="Закрыть">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <form id="form-new-purchase" novalidate>
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="inp-purchase-name" class="form-label">Название закупки</label>
+              <input
+                type="text"
+                id="inp-purchase-name"
+                class="form-input"
+                placeholder="Например: Закупка серверного оборудования"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label for="inp-terms-text" class="form-label">Техническое задание (текст)</label>
+              <textarea
+                id="inp-terms-text"
+                class="form-textarea"
+                rows="6"
+                placeholder="Вставьте текст ТЗ или загрузите файл ниже"
+              ></textarea>
+            </div>
+            <div class="form-group">
+              <label for="inp-tz-file" class="form-label">Загрузить документ ТЗ</label>
+              <input
+                type="file"
+                id="inp-tz-file"
+                class="form-input"
+                accept=".docx,.doc,.pdf,.xlsx,.xls"
+              />
+              <p class="form-hint">Поддерживаемые форматы: DOCX, DOC, PDF, XLSX, XLS</p>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-modal-close>Отмена</button>
+            <button type="submit" class="btn btn-primary">Создать закупку</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal: Add Supplier -->
+    <div class="modal-overlay" id="modal-add-supplier" aria-modal="true" role="dialog" aria-labelledby="modal-add-supplier-title">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 class="modal-title" id="modal-add-supplier-title">Добавить поставщика</h3>
+          <button type="button" class="modal-close" data-modal-close aria-label="Закрыть">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <form id="form-add-supplier" novalidate>
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="inp-supplier-company" class="form-label">Название компании</label>
+              <input
+                type="text"
+                id="inp-supplier-company"
+                class="form-input"
+                placeholder="ООО «Поставщик»"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label for="inp-supplier-website" class="form-label">Сайт</label>
+              <input
+                type="url"
+                id="inp-supplier-website"
+                class="form-input"
+                placeholder="https://example.com"
+              />
+            </div>
+            <div class="form-group">
+              <label for="inp-supplier-reason" class="form-label">Причина добавления</label>
+              <input
+                type="text"
+                id="inp-supplier-reason"
+                class="form-input"
+                placeholder="Рекомендация, выставка, опыт сотрудничества..."
+              />
+            </div>
+            <div class="form-group">
+              <label for="inp-supplier-email" class="form-label">Email контактного лица</label>
+              <input
+                type="email"
+                id="inp-supplier-email"
+                class="form-input"
+                placeholder="contact@supplier.ru"
+              />
+            </div>
+            <div class="form-group">
+              <label for="inp-supplier-email-2" class="form-label">Дополнительный email</label>
+              <input
+                type="email"
+                id="inp-supplier-email-2"
+                class="form-input"
+                placeholder="sales@supplier.ru"
+              />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-modal-close>Отмена</button>
+            <button type="submit" class="btn btn-primary">Добавить</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal: Add Bid (Commercial Proposal) -->
+    <div class="modal-overlay" id="modal-add-bid" aria-modal="true" role="dialog" aria-labelledby="modal-add-bid-title">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 class="modal-title" id="modal-add-bid-title">Загрузить коммерческое предложение</h3>
+          <button type="button" class="modal-close" data-modal-close aria-label="Закрыть">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <form id="form-add-bid" novalidate>
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="inp-bid-supplier-select" class="form-label">Поставщик из списка</label>
+              <select id="inp-bid-supplier-select" class="form-select">
+                <option value="">-- Выберите поставщика --</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="inp-bid-supplier-name" class="form-label">Или введите название поставщика</label>
+              <input
+                type="text"
+                id="inp-bid-supplier-name"
+                class="form-input"
+                placeholder="Название компании-поставщика"
+              />
+            </div>
+            <div class="form-group">
+              <label for="inp-bid-supplier-contact" class="form-label">Контактное лицо</label>
+              <input
+                type="text"
+                id="inp-bid-supplier-contact"
+                class="form-input"
+                placeholder="ФИО или email"
+              />
+            </div>
+            <div class="form-group">
+              <label for="inp-bid-text" class="form-label">Текст КП</label>
+              <textarea
+                id="inp-bid-text"
+                class="form-textarea"
+                rows="6"
+                placeholder="Вставьте текст коммерческого предложения или загрузите файл"
+              ></textarea>
+            </div>
+            <div class="form-group">
+              <label for="inp-bid-file" class="form-label">Загрузить файл КП</label>
+              <input
+                type="file"
+                id="inp-bid-file"
+                class="form-input"
+                accept=".docx,.doc,.pdf,.xlsx,.xls"
+              />
+              <p class="form-hint">Поддерживаемые форматы: DOCX, DOC, PDF, XLSX, XLS</p>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-modal-close>Отмена</button>
+            <button type="submit" class="btn btn-primary">Загрузить КП</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal: Add Lot -->
+    <div class="modal-overlay" id="modal-add-lot" aria-modal="true" role="dialog" aria-labelledby="modal-add-lot-title">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 class="modal-title" id="modal-add-lot-title">Добавить лот</h3>
+          <button type="button" class="modal-close" data-modal-close aria-label="Закрыть">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <form id="form-add-lot" novalidate>
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="inp-lot-name" class="form-label">Название лота</label>
+              <input
+                type="text"
+                id="inp-lot-name"
+                class="form-input"
+                placeholder="Например: Сервер 1U Rack"
+                required
+              />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Параметры</label>
+              <div id="lot-params-list">
+                <!-- Parameter rows added dynamically -->
+              </div>
+              <button type="button" id="btn-add-lot-param" class="btn btn-sm btn-outline mt-2">
+                + Добавить параметр
+              </button>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-modal-close>Отмена</button>
+            <button type="submit" class="btn btn-primary">Сохранить лот</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal: Lot Detail -->
+    <div class="modal-overlay" id="modal-lot-detail" aria-modal="true" role="dialog" aria-labelledby="modal-lot-detail-title">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 class="modal-title" id="modal-lot-detail-title">Детали лота</h3>
+          <button type="button" class="modal-close" data-modal-close aria-label="Закрыть">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <h4 id="lot-detail-name" class="font-semibold mb-4"></h4>
+          <div class="table-wrap">
+            <table class="table table-compact" id="lot-detail-params-table">
+              <thead>
+                <tr>
+                  <th scope="col">Параметр</th>
+                  <th scope="col">Значение</th>
+                  <th scope="col">Ед. изм.</th>
+                </tr>
+              </thead>
+              <tbody id="lot-detail-params-body">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-modal-close>Закрыть</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         Toasts
+         ============================================================ -->
+    <div
+      id="error-toast"
+      class="alert alert-danger hidden"
+      role="alert"
+      aria-live="assertive"
+      style="position: fixed; bottom: var(--space-6); right: var(--space-6); z-index: 2000; max-width: 420px; box-shadow: var(--shadow-lg);"
+    >
+      <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+      </svg>
+      <span id="error-toast-text"></span>
+    </div>
+
+    <div
+      id="message-toast"
+      class="alert alert-success hidden"
+      role="status"
+      aria-live="polite"
+      style="position: fixed; bottom: var(--space-6); right: var(--space-6); z-index: 2000; max-width: 420px; box-shadow: var(--shadow-lg);"
+    >
+      <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+      </svg>
+      <span id="message-toast-text"></span>
+    </div>
+
+    <!-- ============================================================
+         Scripts
+         ============================================================ -->
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/app.js"></script>
+    <script>
+      Auth.requireAuth();
+
+      (function () {
+        var user = Auth.getUser();
+        if (user && user.is_admin) {
+          var adminLink = document.getElementById('admin-link');
+          if (adminLink) {
+            adminLink.classList.remove('hidden');
+          }
+        }
+      })();
+    </script>
   </body>
 </html>

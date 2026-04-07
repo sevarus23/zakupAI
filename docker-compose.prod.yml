@@ -24,7 +24,8 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://zakupai:zakupai@db:5432/zakupai}
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://zakupai.tech}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.zakupai.tech}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL}
       OPENAI_MODEL: ${OPENAI_MODEL}
@@ -69,8 +70,6 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        VITE_API_URL: ${VITE_API_URL:-}
     restart: unless-stopped
     depends_on:
       - backend

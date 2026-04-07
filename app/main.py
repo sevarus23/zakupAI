@@ -15,6 +15,8 @@ from fastapi.responses import StreamingResponse
 
 from . import auth
 from .database import create_db_and_tables, get_session
+from .routers import auth as auth_router
+from .routers import admin as admin_router
 from .llm_openai import build_search_queries
 from .llm_stub import generate_email_body
 from .models import (
@@ -61,9 +63,6 @@ from .schemas import (
     SupplierImportResult,
     SupplierSearchRequest,
     SupplierSearchResponse,
-    TokenResponse,
-    UserCreate,
-    UserRead,
 )
 from .supplier_import import load_contacts_from_files, merge_contacts
 from .task_queue import (
@@ -85,6 +84,10 @@ app.add_middleware(
 )
 
 
+app.include_router(auth_router.router)
+app.include_router(admin_router.router)
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     create_db_and_tables()
@@ -95,47 +98,6 @@ def on_startup() -> None:
 @app.get("/health")
 def healthcheck() -> dict:
     return {"status": "ok"}
-
-
-@app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def register_user(payload: UserCreate, session=Depends(get_session)) -> User:
-    if len(payload.password) < 6:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password must be at least 6 characters long",
-        )
-
-    if len(payload.password) > 72:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password must be at most 72 characters long",
-        )
-
-    existing = session.exec(select(User).where(User.email == payload.email)).first()
-    if existing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already exists")
-
-    hashed = auth.hash_password(payload.password)
-    user = User(email=payload.email, password_hash=hashed)
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    return user
-
-
-@app.post("/auth/login", response_model=TokenResponse)
-def login_user(payload: UserCreate, session=Depends(get_session)) -> TokenResponse:
-    user = session.exec(select(User).where(User.email == payload.email)).first()
-    if not user or not auth.verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-
-    token = auth.issue_token(user, session)
-    return TokenResponse(token=token.token)
-
-
-@app.get("/users/me", response_model=UserRead)
-def get_me(current_user: User = Depends(auth.get_current_user)) -> User:
-    return current_user
 
 
 @app.post("/purchases", response_model=PurchaseRead, status_code=status.HTTP_201_CREATED)

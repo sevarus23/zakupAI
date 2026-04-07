@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Вход — zakupAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/auth.css">
+</head>
+<body>
+  <div class="auth-page">
+    <div class="auth-card">
+      <div class="auth-card-body">
+        <!-- Logo -->
+        <div class="auth-logo">
+          <div class="auth-logo-text">zakupAI</div>
+          <div class="auth-logo-sub">Интеллектуальный помощник в закупках</div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="auth-tabs">
+          <button class="auth-tab active" type="button">Вход</button>
+          <a href="register.html" class="auth-tab">Регистрация</a>
+        </div>
+
+        <!-- Error -->
+        <div id="error" class="auth-error hidden"></div>
+
+        <!-- Login Form -->
+        <form id="loginForm" class="auth-form" novalidate>
+          <div class="auth-field">
+            <label for="email">Email</label>
+            <div class="auth-input-wrap">
+              <input id="email" type="email" class="form-input" placeholder="Email" required autocomplete="email">
+            </div>
+          </div>
+
+          <div class="auth-field">
+            <label for="password">Пароль</label>
+            <div class="auth-input-wrap">
+              <input id="password" type="password" class="form-input" placeholder="Пароль" required minlength="6" autocomplete="current-password">
+              <button type="button" id="togglePassword" class="auth-pw-toggle" aria-label="Показать пароль">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" class="auth-submit">Войти</button>
+        </form>
+      </div>
+
+      <div class="auth-footer">
+        Нет аккаунта? <a href="register.html">Зарегистрироваться</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      // Redirect if already logged in
+      if (Auth.isLoggedIn()) {
+        window.location.href = '/';
+        return;
+      }
+
+      var form = document.getElementById('loginForm');
+      var errorDiv = document.getElementById('error');
+      var passwordInput = document.getElementById('password');
+      var toggleBtn = document.getElementById('togglePassword');
+
+      // Toggle password visibility
+      toggleBtn.addEventListener('click', function () {
+        var isPassword = passwordInput.type === 'password';
+        passwordInput.type = isPassword ? 'text' : 'password';
+        toggleBtn.setAttribute('aria-label', isPassword ? 'Скрыть пароль' : 'Показать пароль');
+      });
+
+      // Form submit
+      form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        errorDiv.classList.add('hidden');
+        errorDiv.textContent = '';
+
+        var email = document.getElementById('email').value.trim();
+        var password = passwordInput.value;
+
+        if (!email || !password) {
+          errorDiv.textContent = 'Заполните все обязательные поля';
+          errorDiv.classList.remove('hidden');
+          return;
+        }
+
+        var submitBtn = form.querySelector('.auth-submit');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Вход...';
+
+        try {
+          var data = await API.apiFetch('/auth/login', {
+            method: 'POST',
+            body: { email: email, password: password },
+          });
+          Auth.saveAuth(data.token, data.user);
+          window.location.href = '/';
+        } catch (err) {
+          errorDiv.textContent = err.message || 'Ошибка входа';
+          errorDiv.classList.remove('hidden');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Войти';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

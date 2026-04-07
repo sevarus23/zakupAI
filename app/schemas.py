@@ -9,14 +9,59 @@ class UserCreate(BaseModel):
     password: str
 
 
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: Optional[str] = None
+    organization: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
 class UserRead(BaseModel):
     id: int
     email: EmailStr
+    full_name: Optional[str] = None
+    organization: Optional[str] = None
+    is_admin: bool = False
     created_at: datetime
 
 
 class TokenResponse(BaseModel):
     token: str
+    user: UserRead
+
+
+class AdminDashboard(BaseModel):
+    total_users: int
+    new_users_today: int
+    total_purchases: int
+    purchases_today: int
+
+
+class AdminUserRead(BaseModel):
+    id: int
+    email: EmailStr
+    full_name: Optional[str] = None
+    organization: Optional[str] = None
+    is_admin: bool
+    is_active: bool
+    created_at: datetime
+    purchase_count: int = 0
+
+
+class AdminPurchaseRead(BaseModel):
+    id: int
+    user_email: str
+    auto_number: int
+    full_name: str
+    custom_name: Optional[str] = None
+    status: str
+    lots_count: int = 0
+    created_at: datetime
 
 
 class PurchaseCreate(BaseModel):

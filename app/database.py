@@ -15,6 +15,7 @@ engine = create_engine(
 def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
     _ensure_supplier_contact_columns()
+    _ensure_user_columns()
 
 
 def _ensure_supplier_contact_columns() -> None:
@@ -30,6 +31,22 @@ def _ensure_supplier_contact_columns() -> None:
             if column_name in existing_columns:
                 continue
             conn.execute(text(f"ALTER TABLE suppliercontact ADD COLUMN {column_name} {column_type}"))
+
+
+def _ensure_user_columns() -> None:
+    expected_columns = {
+        "full_name": "VARCHAR",
+        "organization": "VARCHAR",
+        "is_admin": "BOOLEAN DEFAULT FALSE",
+        "is_active": "BOOLEAN DEFAULT TRUE",
+    }
+    with engine.begin() as conn:
+        inspector = inspect(conn)
+        existing_columns = {column["name"] for column in inspector.get_columns("user")}
+        for column_name, column_type in expected_columns.items():
+            if column_name in existing_columns:
+                continue
+            conn.execute(text(f'ALTER TABLE "user" ADD COLUMN {column_name} {column_type}'))
 
 
 def get_session() -> Iterator[Session]:
