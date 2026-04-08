@@ -213,11 +213,15 @@
                   <div class="icon">&#128203;</div>
                   <div class="label">Техническое задание</div>
                   <div class="hint" id="comparison-tz-hint">ТЗ не загружено</div>
+                  <div class="hint" style="color:var(--text-secondary);font-size:11px;">pdf, xlsx, doc, docx, rtf, txt</div>
+                  <input type="file" id="inp-comparison-tz-file" accept=".pdf,.xlsx,.doc,.docx,.rtf,.txt" style="display:none">
                 </div>
                 <div class="upload-zone" id="comparison-kp-zone">
                   <div class="icon">&#128196;</div>
                   <div class="label">Коммерческие предложения</div>
                   <div class="hint" id="comparison-kp-hint">КП не загружены</div>
+                  <div class="hint" style="color:var(--text-secondary);font-size:11px;">pdf, xlsx, doc, docx</div>
+                  <input type="file" id="inp-comparison-kp-file" accept=".pdf,.xlsx,.doc,.docx" style="display:none">
                 </div>
               </div>
             </div>
@@ -251,8 +255,15 @@
               &#8505; Проверка по ПП №1875, реестру российской продукции, баллам локализации и каталогу ГИСП
             </div>
 
+            <div class="upload-zone" id="regime-kp-zone" style="margin-bottom: 16px;">
+              <div class="icon">&#128196;</div>
+              <div class="label">Загрузить КП для проверки</div>
+              <div class="hint" id="regime-kp-hint">pdf, xlsx, doc, docx</div>
+              <input type="file" id="inp-regime-kp-file" accept=".pdf,.xlsx,.doc,.docx" style="display:none">
+            </div>
+
             <div id="regime-results">
-              <div class="empty-state">Загрузите лоты и выполните поиск поставщиков для проверки национального режима</div>
+              <div class="empty-state">Загрузите КП или выберите закупку с загруженными предложениями</div>
             </div>
           </div>
         </div>

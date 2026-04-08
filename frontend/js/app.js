@@ -953,6 +953,74 @@
         this.disabled = false;
       }
     });
+
+    // ── Standalone TZ upload on Comparison tab ──
+    $('comparison-tz-zone').addEventListener('click', function () {
+      $('inp-comparison-tz-file').click();
+    });
+
+    $('inp-comparison-tz-file').addEventListener('change', async function () {
+      var file = this.files[0];
+      if (!file) return;
+      if (!currentPurchase) {
+        showError('Сначала выберите или создайте закупку');
+        this.value = '';
+        return;
+      }
+      try {
+        showMessage('Конвертация ТЗ...');
+        var converted = await API.convertTechTaskFile(file);
+        if (converted && converted.markdown) {
+          var existingTerms = currentPurchase.terms_text || '';
+          var newTerms = existingTerms ? existingTerms + '\n\n' + converted.markdown : converted.markdown;
+          await API.apiFetch('/purchases/' + currentPurchase.id, {
+            method: 'PATCH',
+            body: { terms_text: newTerms },
+          });
+          currentPurchase.terms_text = newTerms;
+          showMessage('ТЗ загружено');
+          updateComparisonZones();
+          loadLots();
+        }
+      } catch (e) {
+        showError('Ошибка загрузки ТЗ: ' + e.message);
+      }
+      this.value = '';
+    });
+
+    // ── Standalone KP upload on Comparison tab ──
+    $('comparison-kp-zone').addEventListener('click', function () {
+      $('inp-comparison-kp-file').click();
+    });
+
+    $('inp-comparison-kp-file').addEventListener('change', async function () {
+      var file = this.files[0];
+      if (!file) return;
+      if (!currentPurchase) {
+        showError('Сначала выберите или создайте закупку');
+        this.value = '';
+        return;
+      }
+      try {
+        showMessage('Конвертация КП...');
+        var converted = await API.convertTechTaskFile(file);
+        if (converted && converted.markdown) {
+          var supplierName = file.name.replace(/\.[^.]+$/, '');
+          await API.apiFetch('/purchases/' + currentPurchase.id + '/bids', {
+            method: 'POST',
+            body: {
+              bid_text: converted.markdown,
+              supplier_name: supplierName,
+            },
+          });
+          showMessage('КП загружено');
+          loadBids();
+        }
+      } catch (e) {
+        showError('Ошибка загрузки КП: ' + e.message);
+      }
+      this.value = '';
+    });
   }
 
   async function pollComparison() {
@@ -1041,12 +1109,48 @@
     var btnRefresh = $('btn-regime-refresh');
     if (btnCheck) btnCheck.addEventListener('click', startRegimeCheck);
     if (btnRefresh) btnRefresh.addEventListener('click', loadRegimeCheck);
+
+    // ── Standalone KP upload on Regime tab ──
+    $('regime-kp-zone').addEventListener('click', function () {
+      $('inp-regime-kp-file').click();
+    });
+
+    $('inp-regime-kp-file').addEventListener('change', async function () {
+      var file = this.files[0];
+      if (!file) return;
+      if (!currentPurchase) {
+        showError('Сначала выберите или создайте закупку');
+        this.value = '';
+        return;
+      }
+      try {
+        showMessage('Конвертация КП...');
+        var converted = await API.convertTechTaskFile(file);
+        if (converted && converted.markdown) {
+          var supplierName = file.name.replace(/\.[^.]+$/, '');
+          await API.apiFetch('/purchases/' + currentPurchase.id + '/bids', {
+            method: 'POST',
+            body: {
+              bid_text: converted.markdown,
+              supplier_name: supplierName,
+            },
+          });
+          showMessage('КП загружено — можно запускать проверку');
+          var hint = $('regime-kp-hint');
+          if (hint) hint.textContent = 'Загружено: ' + file.name;
+          loadBids();
+        }
+      } catch (e) {
+        showError('Ошибка загрузки КП: ' + e.message);
+      }
+      this.value = '';
+    });
   }
 
   function startRegimeCheck() {
-    if (!selectedPurchaseId) return;
+    if (!currentPurchase) return;
     $('regime-results').innerHTML = '<div class="search-status"><div class="spinner"></div><span>Запуск проверки национального режима...</span></div>';
-    API.apiFetch('/regime/purchases/' + selectedPurchaseId + '/check', { method: 'POST' })
+    API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check', { method: 'POST' })
       .then(function (data) {
         if (data && (data.status === 'pending' || data.status === 'processing')) {
           pollRegimeCheck();
@@ -1058,11 +1162,11 @@
   }
 
   function loadRegimeCheck() {
-    if (!selectedPurchaseId) return;
-    API.apiFetch('/regime/purchases/' + selectedPurchaseId + '/check')
+    if (!currentPurchase) return;
+    API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check')
       .then(function (data) {
         if (!data || !data.id) {
-          $('regime-results').innerHTML = '<div class="empty-state">Загрузите лоты и выполните поиск поставщиков для проверки национального режима</div>';
+          $('regime-results').innerHTML = '<div class="empty-state">Загрузите КП или выберите закупку с загруженными предложениями</div>';
           return;
         }
         if (data.status === 'pending' || data.status === 'processing') {
@@ -1073,15 +1177,15 @@
         }
       })
       .catch(function () {
-        $('regime-results').innerHTML = '<div class="empty-state">Загрузите лоты и выполните поиск поставщиков для проверки национального режима</div>';
+        $('regime-results').innerHTML = '<div class="empty-state">Загрузите КП или выберите закупку с загруженными предложениями</div>';
       });
   }
 
   function pollRegimeCheck() {
     if (regimePollingTimer) clearTimeout(regimePollingTimer);
     regimePollingTimer = setTimeout(function () {
-      if (!selectedPurchaseId) return;
-      API.apiFetch('/regime/purchases/' + selectedPurchaseId + '/check')
+      if (!currentPurchase) return;
+      API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check')
         .then(function (data) {
           if (data && (data.status === 'pending' || data.status === 'processing')) {
             pollRegimeCheck();
