@@ -470,6 +470,7 @@
       currentSuppliers = await API.apiFetch('/purchases/' + currentPurchase.id + '/suppliers');
       renderSuppliers();
       renderOwnSuppliers();
+      renderCorrespondenceSuppliers();
       checkSearchStatus();
     } catch (e) {
       showError('Ошибка загрузки поставщиков: ' + e.message);
@@ -736,6 +737,7 @@
       currentBids = await API.apiFetch('/purchases/' + currentPurchase.id + '/bids');
       renderBids();
       renderBidSelector();
+      renderCorrespondenceSuppliers();
       populateBidSupplierDropdown();
       // Update badge
       var badge = $('badge-correspondence');
@@ -752,43 +754,90 @@
 
   function renderBids() {
     var container = $('bids-container');
-    if (!currentBids.length) {
-      container.innerHTML = '<div class="empty-state">Коммерческие предложения пока не загружены</div>';
-      return;
-    }
     var html = '<div class="proposals-grid">';
     for (var i = 0; i < currentBids.length; i++) {
       var bid = currentBids[i];
       var lotCount = bid.lots ? bid.lots.length : 0;
       html += '<div class="proposal-card">' +
         '<div class="proposal-supplier">' + escapeHtml(bid.supplier_name || 'Поставщик') + '</div>' +
-        '<div class="proposal-date">' + (bid.supplier_contact ? escapeHtml(bid.supplier_contact) : '') + '</div>' +
+        '<div class="proposal-date">' + (bid.supplier_contact ? escapeHtml(bid.supplier_contact) + ' &middot; ' : '') + formatDate(bid.created_at) + '</div>' +
         '<div class="proposal-items">' + lotCount + ' позици' + (lotCount === 1 ? 'я' : lotCount < 5 ? 'и' : 'й') + '</div>' +
         '</div>';
     }
+    html += '<div class="proposal-add" id="bid-upload-zone-inner"><div class="plus">+</div><div>Загрузить КП</div><div style="font-size:11px">pdf, xlsx, doc, docx</div></div>';
     html += '</div>';
     container.innerHTML = html;
+    // Bind upload zone click
+    var uploadZone = $('bid-upload-zone-inner');
+    if (uploadZone) {
+      uploadZone.addEventListener('click', function () {
+        $('form-add-bid').reset();
+        $('bid-file-label').textContent = 'Нажмите для загрузки';
+        populateBidSupplierDropdown();
+        openModal('modal-add-bid');
+      });
+    }
+    // Update comparison zones
+    updateComparisonZones();
+  }
+
+  function renderCorrespondenceSuppliers() {
+    var container = $('correspondence-suppliers');
+    if (!currentSuppliers.length) {
+      container.innerHTML = '<div class="empty-state" style="padding:20px;font-size:13px;">Сначала найдите поставщиков во вкладке «Поиск»</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < currentSuppliers.length; i++) {
+      var s = currentSuppliers[i];
+      var hasBid = currentBids.some(function (b) { return b.supplier_id === s.id; });
+      var pillClass = hasBid ? 'pill-success' : 'pill-draft';
+      var pillText = hasBid ? '&#10003; КП получено' : '&#9993; Ожидание КП';
+      html += '<div class="supplier-card">' +
+        '<div class="supplier-card-name">' + escapeHtml(s.company_name || s.website_url || 'Поставщик') + '</div>' +
+        '<div class="supplier-card-status"><span class="status-pill ' + pillClass + '">' + pillText + '</span></div>' +
+        '</div>';
+    }
+    container.innerHTML = html;
+  }
+
+  function updateComparisonZones() {
+    // ТЗ zone
+    var tzHint = $('comparison-tz-hint');
+    if (tzHint) {
+      tzHint.textContent = currentPurchase && currentPurchase.terms_text ? 'ТЗ загружено' : 'ТЗ не загружено';
+    }
+    // КП zone
+    var kpHint = $('comparison-kp-hint');
+    if (kpHint) {
+      if (currentBids.length > 0) {
+        var names = currentBids.map(function (b) { return b.supplier_name || 'Поставщик'; }).join(', ');
+        kpHint.textContent = 'Загружено: ' + currentBids.length + ' файл (' + names + ')';
+      } else {
+        kpHint.textContent = 'КП не загружены';
+      }
+    }
   }
 
   function renderBidSelector() {
     var container = $('comparison-bid-selector');
     if (!currentBids.length) {
-      container.innerHTML = '<div class="empty-state">Сначала загрузите КП во вкладке «Письма и КП»</div>';
+      container.innerHTML = '<div class="empty-state" style="padding:16px;font-size:13px;width:100%;text-align:center;">Загрузите КП, чтобы выбрать поставщика для сравнения</div>';
       $('btn-compare').disabled = true;
       return;
     }
-    var html = '<div class="comp-suppliers-list">';
+    var html = '';
     for (var i = 0; i < currentBids.length; i++) {
       var bid = currentBids[i];
       var active = selectedBidId === bid.id ? ' active' : '';
+      var lotCount = bid.lots ? bid.lots.length : 0;
       html += '<div class="comp-supplier-tab' + active + '" data-bid-id="' + bid.id + '">' +
         '<span class="comp-supplier-indicator comp-supplier-indicator--pending"></span>' +
         '<div>' +
         '<div class="comp-supplier-tab-name">' + escapeHtml(bid.supplier_name || 'Поставщик') + '</div>' +
-        '<div class="comp-supplier-tab-meta">' + (bid.lots ? bid.lots.length : 0) + ' позиций</div>' +
+        '<div class="comp-supplier-tab-meta">' + lotCount + ' позиций</div>' +
         '</div></div>';
     }
-    html += '</div>';
     container.innerHTML = html;
 
     var cards = container.querySelectorAll('.comp-supplier-tab');
@@ -799,6 +848,7 @@
         renderBidSelector();
       });
     }
+    updateComparisonZones();
   }
 
   function populateBidSupplierDropdown() {

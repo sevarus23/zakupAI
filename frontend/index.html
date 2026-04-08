@@ -142,50 +142,98 @@
 
       <!-- ==================== TAB 2: CORRESPONDENCE ==================== -->
       <div class="tab-content" id="tab-correspondence">
-        <div class="card section-gap">
-          <div class="card-header">
-            <h3>Письмо-запрос КП</h3>
-            <div class="flex-gap">
-              <button class="btn btn-primary btn-sm" id="btn-generate-email">Сгенерировать письмо</button>
-            </div>
-          </div>
-          <div class="card-body">
-            <div id="email-draft">
-              <div class="empty-state">Нажмите «Сгенерировать письмо» для создания текста запроса КП</div>
-            </div>
-          </div>
-        </div>
+        <div class="two-col" style="grid-template-columns: 260px 1fr;">
 
-        <div class="card">
-          <div class="card-header">
-            <h3>Полученные КП</h3>
-            <button class="btn btn-primary btn-sm" id="btn-add-bid">+ Загрузить КП</button>
-          </div>
-          <div class="card-body">
-            <div id="bids-container">
-              <div class="empty-state">Коммерческие предложения пока не загружены</div>
+          <!-- LEFT: Supplier list for correspondence -->
+          <div>
+            <div class="card">
+              <div class="card-header">
+                <h3>Поставщики</h3>
+              </div>
+              <div class="card-body" style="padding: 8px;" id="correspondence-suppliers">
+                <div class="empty-state" style="padding: 20px; font-size: 13px;">Сначала найдите поставщиков во вкладке «Поиск»</div>
+              </div>
             </div>
           </div>
+
+          <!-- RIGHT: Letter + Proposals -->
+          <div>
+            <!-- Letter generation -->
+            <div class="card section-gap">
+              <div class="card-header">
+                <h3>Письмо-запрос КП</h3>
+                <div class="flex-gap">
+                  <button class="btn btn-primary btn-sm" id="btn-generate-email">Сгенерировать текст</button>
+                </div>
+              </div>
+              <div class="card-body">
+                <div id="email-draft">
+                  <div class="empty-state">Нажмите «Сгенерировать текст» для создания письма-запроса КП</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Received proposals -->
+            <div class="card">
+              <div class="card-header">
+                <h3>Полученные КП</h3>
+                <button class="btn btn-primary btn-sm" id="btn-add-bid">+ Загрузить КП</button>
+              </div>
+              <div class="card-body">
+                <div id="bids-container">
+                  <div class="proposals-grid">
+                    <div class="proposal-add" id="bid-upload-zone">
+                      <div class="plus">+</div>
+                      <div>Загрузить КП</div>
+                      <div style="font-size: 11px;">pdf, xlsx, doc, docx</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
 
       <!-- ==================== TAB 3: COMPARISON ==================== -->
       <div class="tab-content" id="tab-comparison">
-        <div class="card section-gap">
-          <div class="card-header">
-            <h3>Сравнение ТЗ и коммерческих предложений</h3>
-            <div class="flex-gap">
-              <button class="btn btn-primary btn-sm" id="btn-compare" disabled>Запустить сравнение</button>
+        <div class="section-gap">
+          <!-- Header card with upload zones -->
+          <div class="card section-gap">
+            <div class="card-header">
+              <h3>Сравнение ТЗ и коммерческих предложений</h3>
+              <div class="flex-gap">
+                <button class="btn btn-primary btn-sm" id="btn-compare" disabled>Запустить сравнение</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                <div class="upload-zone" id="comparison-tz-zone">
+                  <div class="icon">&#128203;</div>
+                  <div class="label">Техническое задание</div>
+                  <div class="hint" id="comparison-tz-hint">ТЗ не загружено</div>
+                </div>
+                <div class="upload-zone" id="comparison-kp-zone">
+                  <div class="icon">&#128196;</div>
+                  <div class="label">Коммерческие предложения</div>
+                  <div class="hint" id="comparison-kp-hint">КП не загружены</div>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="card-body">
-            <div id="comparison-bid-selector">
-              <div class="empty-state">Сначала загрузите КП во вкладке «Письма и КП»</div>
-            </div>
-          </div>
-        </div>
 
-        <div id="comparison-results"></div>
+          <!-- Supplier selector bar -->
+          <div class="comp-suppliers-bar">
+            <div class="comp-suppliers-label">Сравнение по поставщикам:</div>
+            <div class="comp-suppliers-list" id="comparison-bid-selector">
+              <div class="empty-state" style="padding: 16px; font-size: 13px; width: 100%; text-align: center;">Загрузите КП, чтобы выбрать поставщика для сравнения</div>
+            </div>
+          </div>
+
+          <!-- Comparison results -->
+          <div id="comparison-results"></div>
+        </div>
       </div>
 
       <!-- ==================== TAB 4: NAT REGIME ==================== -->
