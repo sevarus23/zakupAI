@@ -15,8 +15,4 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /opt/zakupai
-            echo "=== LATEST TASK NOTE ==="
-            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "SELECT id, task_type, status, output_text::json->>'note' as note FROM llmtask WHERE task_type='supplier_search' ORDER BY created_at DESC LIMIT 5;"
-            echo ""
-            echo "=== SUPPLIER SOURCES SUMMARY ==="
-            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "SELECT source, count(*) FROM suppliercontact GROUP BY source;"
+            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "SELECT id, email, full_name, is_admin, is_active FROM \"user\";"
