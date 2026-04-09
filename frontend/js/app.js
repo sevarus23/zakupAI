@@ -146,6 +146,9 @@
     var user = Auth.getUser();
     if (user) {
       $('user-info').textContent = user.email || user.full_name || '';
+      if (user.is_admin) {
+        $('admin-link').classList.remove('hidden');
+      }
     }
     $('btn-logout').addEventListener('click', function () { Auth.logout(); });
   }
