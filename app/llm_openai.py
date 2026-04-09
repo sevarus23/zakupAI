@@ -76,6 +76,7 @@ PERPLEXITY_SUPPLIERS_SCHEMA: Dict[str, Any] = {
 
 
 def _raw_create_chat_completion(client: OpenAI, **kwargs):
+    kwargs.setdefault("timeout", 120.0)
     raw_response = client.chat.completions.with_raw_response.create(**kwargs)
     status_code = getattr(raw_response, "status_code", None)
     raw_text = None
