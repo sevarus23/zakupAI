@@ -16,16 +16,19 @@ jobs:
           script: |
             cd /opt/zakupai
             echo "=== CONTAINER STATUS ==="
-            docker compose ps
+            docker compose -f docker-compose.prod.yml ps
+            echo ""
+            echo "=== ENABLE_EMBEDDED_QUEUE CHECK ==="
+            docker compose -f docker-compose.prod.yml exec -T backend env | grep ENABLE
             echo ""
             echo "=== TASK STATUS ==="
-            docker compose exec -T db psql -U zakupai -d zakupai -c "SELECT id, task_type, status, created_at, substring(output_text for 200) as output_excerpt FROM llmtask WHERE purchase_id=3 ORDER BY created_at DESC LIMIT 5;"
+            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "SELECT id, task_type, status, created_at, substring(output_text for 200) as output_excerpt FROM llmtask WHERE purchase_id=3 ORDER BY created_at DESC LIMIT 5;"
             echo ""
             echo "=== BACKEND ERROR LOGS ==="
-            docker compose logs backend 2>&1 | grep -i -E "error|failed|exception|timeout|traceback" | tail -30
+            docker compose -f docker-compose.prod.yml logs backend 2>&1 | grep -i -E "error|failed|exception|timeout|traceback|task_queue|supplier_search|recovering|openai" | tail -30
             echo ""
-            echo "=== BACKEND LAST 30 LOGS ==="
-            docker compose logs backend --tail=30
+            echo "=== BACKEND LAST 50 LOGS ==="
+            docker compose -f docker-compose.prod.yml logs backend --tail=50
             echo ""
             echo "=== ENV CHECK ==="
-            grep -E "OPENAI|OPENROUTER" .env 2>/dev/null | sed 's/=.*/=***/'
+            grep -E "OPENAI|OPENROUTER|ENABLE" .env 2>/dev/null | sed 's/=.*/=***/'
