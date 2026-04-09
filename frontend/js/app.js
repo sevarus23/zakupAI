@@ -327,8 +327,10 @@
             body: { terms_text: newTerms },
           });
           currentPurchase.terms_text = newTerms;
+          localStorage.setItem('tz_filename_' + currentPurchase.id, file.name);
           showMessage('ТЗ загружено, обновляем лоты...');
           loadLots();
+          updateComparisonZones();
         }
       } catch (e) {
         showError('Ошибка загрузки ТЗ: ' + e.message);
@@ -864,7 +866,16 @@
     // ТЗ zone
     var tzHint = $('comparison-tz-hint');
     if (tzHint) {
-      tzHint.textContent = currentPurchase && currentPurchase.terms_text ? 'ТЗ загружено' : 'ТЗ не загружено';
+      if (currentPurchase && currentPurchase.terms_text) {
+        var tzName = localStorage.getItem('tz_filename_' + currentPurchase.id);
+        tzHint.textContent = tzName ? 'ТЗ: ' + tzName : 'ТЗ загружено';
+        tzHint.style.color = 'var(--success)';
+        tzHint.style.fontWeight = '500';
+      } else {
+        tzHint.textContent = 'ТЗ не загружено';
+        tzHint.style.color = '';
+        tzHint.style.fontWeight = '';
+      }
     }
     // КП zone
     var kpHint = $('comparison-kp-hint');
@@ -1037,6 +1048,7 @@
             body: { terms_text: newTerms },
           });
           currentPurchase.terms_text = newTerms;
+          localStorage.setItem('tz_filename_' + currentPurchase.id, file.name);
           showMessage('ТЗ загружено');
           updateComparisonZones();
           loadLots();
