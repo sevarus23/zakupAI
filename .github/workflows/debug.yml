@@ -15,5 +15,17 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /opt/zakupai
-            echo "=== ETL FULL LOGS ==="
-            docker compose -f docker-compose.prod.yml logs etl --tail=200
+            echo "=== SUPPLIER SOURCES ==="
+            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "SELECT s.id, s.purchase_id, s.company_name, s.source, s.website_url, s.relevance_score FROM supplier s ORDER BY s.id DESC LIMIT 20;"
+            echo ""
+            echo "=== CONTACT SOURCES ==="
+            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "SELECT sc.id, sc.supplier_id, sc.email, sc.source, sc.confidence, sc.source_url FROM suppliercontact sc ORDER BY sc.id DESC LIMIT 20;"
+            echo ""
+            echo "=== LATEST TASK OUTPUT (search_output field) ==="
+            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "SELECT id, task_type, status, substring(output_text for 1000) FROM llmtask WHERE task_type='supplier_search' ORDER BY created_at DESC LIMIT 1;"
+            echo ""
+            echo "=== ETL LOGS (last 100) ==="
+            docker compose -f docker-compose.prod.yml logs etl --tail=100
+            echo ""
+            echo "=== YANDEX ENV CHECK ==="
+            docker compose -f docker-compose.prod.yml exec -T etl env | grep -i -E "YANDEX|PERPLEXITY|OPENAI|OPENROUTER" | sed 's/=.*/=***/'
