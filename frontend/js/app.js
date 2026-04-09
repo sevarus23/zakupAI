@@ -612,7 +612,7 @@
     exportBtn.classList.remove('hidden');
 
     var html = '<table class="suppliers-table"><thead><tr>' +
-      '<th>Поставщик</th><th>Сайт</th><th>Источник</th><th>Причина</th><th>Контакты</th></tr></thead><tbody>';
+      '<th>Поставщик</th><th>Сайт</th><th>Источник</th><th style="width:40%">Причина</th><th>Контакты</th></tr></thead><tbody>';
     for (var i = 0; i < currentSuppliers.length; i++) {
       var s = currentSuppliers[i];
       var website = s.website_url ? '<a href="' + escapeHtml(s.website_url) + '" target="_blank" rel="noopener" style="color:var(--accent)">' + escapeHtml(s.website_url) + '</a>' : '—';
