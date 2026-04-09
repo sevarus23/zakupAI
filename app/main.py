@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import select
+from sqlmodel import select, func, col
 
 from io import BytesIO
 
@@ -17,6 +17,7 @@ from . import auth
 from .database import create_db_and_tables, get_session
 from .routers import auth as auth_router
 from .routers import admin as admin_router
+from .routers import leads as leads_router
 from .routers import regime as regime_router
 from .llm_openai import build_search_queries
 from .llm_stub import generate_email_body
@@ -30,6 +31,8 @@ from .models import (
     Lot,
     LotParameter,
     Purchase,
+    PurchaseFile,
+    RegimeCheck,
     Supplier,
     SupplierContact,
     User,
@@ -54,6 +57,9 @@ from .schemas import (
     LotRead,
     LotParameterRead,
     PurchaseCreate,
+    PurchaseDashboardRead,
+    PurchaseFileCreate,
+    PurchaseFileRead,
     PurchaseRead,
     PurchaseUpdate,
     SupplierContactCreate,
@@ -87,6 +93,7 @@ app.add_middleware(
 
 app.include_router(auth_router.router)
 app.include_router(admin_router.router)
+app.include_router(leads_router.router)
 app.include_router(regime_router.router)
 
 
@@ -130,8 +137,104 @@ def create_purchase(payload: PurchaseCreate, session=Depends(get_session), curre
 
 
 @app.get("/purchases", response_model=List[PurchaseRead])
-def list_purchases(session=Depends(get_session), current_user: User = Depends(auth.get_current_user)) -> List[Purchase]:
-    return session.exec(select(Purchase).where(Purchase.user_id == current_user.id)).all()
+def list_purchases(
+    include_archived: bool = False,
+    session=Depends(get_session),
+    current_user: User = Depends(auth.get_current_user),
+) -> List[Purchase]:
+    stmt = select(Purchase).where(Purchase.user_id == current_user.id)
+    if not include_archived:
+        stmt = stmt.where(Purchase.is_archived == False)  # noqa: E712
+    return session.exec(stmt.order_by(col(Purchase.created_at).desc())).all()
+
+
+@app.get("/purchases/dashboard", response_model=List[PurchaseDashboardRead])
+def get_purchases_dashboard(
+    archived: bool | None = None,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
+    session=Depends(get_session),
+    current_user: User = Depends(auth.get_current_user),
+) -> List[PurchaseDashboardRead]:
+    stmt = select(Purchase).where(Purchase.user_id == current_user.id)
+    if archived is not None:
+        stmt = stmt.where(Purchase.is_archived == archived)  # noqa: E712
+
+    order_col = getattr(Purchase, sort_by, Purchase.created_at)
+    stmt = stmt.order_by(order_col.desc() if sort_order == "desc" else order_col.asc())
+    purchases = session.exec(stmt).all()
+
+    result = []
+    for p in purchases:
+        lots_count = session.exec(select(func.count(Lot.id)).where(Lot.purchase_id == p.id)).one()
+        suppliers_count = session.exec(select(func.count(Supplier.id)).where(Supplier.purchase_id == p.id)).one()
+        bids_count = session.exec(select(func.count(Bid.id)).where(Bid.purchase_id == p.id)).one()
+
+        regime_check = session.exec(
+            select(RegimeCheck).where(RegimeCheck.purchase_id == p.id).order_by(col(RegimeCheck.created_at).desc())
+        ).first()
+        regime_status = regime_check.status if regime_check else None
+
+        files = session.exec(select(PurchaseFile).where(PurchaseFile.purchase_id == p.id)).all()
+
+        # Derive module statuses
+        search_task = session.exec(
+            select(LLMTask).where(
+                LLMTask.purchase_id == p.id,
+                LLMTask.task_type.in_(["supplier_search", "supplier_search_perplexity"]),
+            ).order_by(col(LLMTask.created_at).desc())
+        ).first()
+        if suppliers_count > 0:
+            search_st = "done"
+        elif search_task and search_task.status in ("queued", "in_progress"):
+            search_st = "in_progress"
+        elif search_task and search_task.status == "completed":
+            search_st = "done"
+        else:
+            search_st = "not_started"
+
+        emails_count = session.exec(select(func.count(EmailMessage.id)).where(EmailMessage.purchase_id == p.id)).one()
+        if bids_count > 0:
+            corr_st = "done"
+        elif emails_count > 0:
+            corr_st = "in_progress"
+        else:
+            corr_st = "not_started"
+
+        comparison_task = session.exec(
+            select(LLMTask).where(LLMTask.purchase_id == p.id, LLMTask.task_type == "lot_comparison").order_by(col(LLMTask.created_at).desc())
+        ).first()
+        if comparison_task and comparison_task.status == "completed":
+            comp_st = "done"
+        elif comparison_task and comparison_task.status in ("queued", "in_progress"):
+            comp_st = "in_progress"
+        else:
+            comp_st = "not_started"
+
+        regime_st = "not_started"
+        if regime_check:
+            regime_st = "done" if regime_check.status in ("completed", "done") else "in_progress"
+
+        result.append(PurchaseDashboardRead(
+            id=p.id,
+            auto_number=p.auto_number,
+            full_name=p.full_name,
+            custom_name=p.custom_name,
+            status=p.status,
+            is_archived=p.is_archived if p.is_archived else False,
+            created_at=p.created_at,
+            updated_at=p.updated_at,
+            lots_count=lots_count,
+            suppliers_count=suppliers_count,
+            bids_count=bids_count,
+            regime_status=regime_status,
+            files=[PurchaseFileRead(id=f.id, filename=f.filename, file_type=f.file_type, created_at=f.created_at) for f in files],
+            search_status=search_st,
+            correspondence_status=corr_st,
+            comparison_status=comp_st,
+            regime_check_status=regime_st,
+        ))
+    return result
 
 
 @app.get("/purchases/{purchase_id}", response_model=PurchaseRead)
@@ -165,6 +268,8 @@ def update_purchase(
         purchase.nmck_value = payload.nmck_value
     if payload.nmck_currency is not None:
         purchase.nmck_currency = payload.nmck_currency
+    if payload.is_archived is not None:
+        purchase.is_archived = payload.is_archived
 
     purchase.updated_at = datetime.utcnow()
     session.add(purchase)
@@ -178,6 +283,23 @@ def update_purchase(
             except Exception as exc:
                 print(f"[lots_extraction] immediate run failed: {exc}")
     return purchase
+
+
+@app.post("/purchases/{purchase_id}/files", response_model=PurchaseFileRead, status_code=status.HTTP_201_CREATED)
+def track_purchase_file(
+    purchase_id: int,
+    payload: PurchaseFileCreate,
+    session=Depends(get_session),
+    current_user: User = Depends(auth.get_current_user),
+) -> PurchaseFile:
+    purchase = session.get(Purchase, purchase_id)
+    if not purchase or purchase.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase not found")
+    pf = PurchaseFile(purchase_id=purchase_id, filename=payload.filename, file_type=payload.file_type)
+    session.add(pf)
+    session.commit()
+    session.refresh(pf)
+    return pf
 
 
 def _load_lots(session, purchase_id: int) -> list[LotRead]:

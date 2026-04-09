@@ -136,6 +136,7 @@
         }
         var panel = $('tab-' + tabId);
         if (panel) panel.classList.add('active');
+        if (tabId === 'dashboard') loadDashboard();
       });
     }
   }
@@ -287,6 +288,7 @@
         var body = { custom_name: name };
         if (termsText) body.terms_text = termsText;
         var newPurchase = await API.apiFetch('/purchases', { method: 'POST', body: body });
+        if (file) trackFile(newPurchase.id, file.name, 'tz');
         showMessage('Закупка создана');
         closeModal('modal-new-purchase');
         this.reset();
@@ -327,7 +329,7 @@
             body: { terms_text: newTerms },
           });
           currentPurchase.terms_text = newTerms;
-          localStorage.setItem('tz_filename_' + currentPurchase.id, file.name);
+          trackFile(currentPurchase.id, file.name, 'tz');
           showMessage('ТЗ загружено, обновляем лоты...');
           loadLots();
           updateComparisonZones();
@@ -867,8 +869,7 @@
     var tzHint = $('comparison-tz-hint');
     if (tzHint) {
       if (currentPurchase && currentPurchase.terms_text) {
-        var tzName = localStorage.getItem('tz_filename_' + currentPurchase.id);
-        tzHint.textContent = tzName ? 'ТЗ: ' + tzName : 'ТЗ загружено';
+        tzHint.textContent = 'ТЗ загружено';
         tzHint.style.color = 'var(--success)';
         tzHint.style.fontWeight = '500';
       } else {
@@ -996,6 +997,7 @@
           method: 'POST',
           body: body,
         });
+        if (file) trackFile(currentPurchase.id, file.name, 'kp');
         showMessage('КП загружено');
         closeModal('modal-add-bid');
         this.reset();
@@ -1048,7 +1050,7 @@
             body: { terms_text: newTerms },
           });
           currentPurchase.terms_text = newTerms;
-          localStorage.setItem('tz_filename_' + currentPurchase.id, file.name);
+          trackFile(currentPurchase.id, file.name, 'tz');
           showMessage('ТЗ загружено');
           updateComparisonZones();
           loadLots();
@@ -1084,6 +1086,7 @@
               supplier_name: supplierName,
             },
           });
+          trackFile(currentPurchase.id, file.name, 'kp');
           showMessage('КП загружено');
           loadBids();
         }
@@ -1206,6 +1209,7 @@
               supplier_name: supplierName,
             },
           });
+          trackFile(currentPurchase.id, file.name, 'regime_kp');
           showMessage('КП загружено — можно запускать проверку');
           var hint = $('regime-kp-hint');
           if (hint) hint.textContent = 'Загружено: ' + file.name;
@@ -1342,10 +1346,146 @@
 
   // ── Init ───────────────────────────────────────────────────────────
 
+  // ── Dashboard ────────────────────────────────────────────────────
+
+  async function loadDashboard() {
+    var archivedSel = $('dashboard-filter-archived');
+    var sortSel = $('dashboard-sort');
+    var params = [];
+    if (archivedSel && archivedSel.value !== '') params.push('archived=' + archivedSel.value);
+    var sortVal = sortSel ? sortSel.value : 'created_at_desc';
+    var parts = sortVal.split('_');
+    var sortOrder = parts.pop();
+    var sortBy = parts.join('_');
+    params.push('sort_by=' + sortBy);
+    params.push('sort_order=' + sortOrder);
+
+    try {
+      var data = await API.apiFetch('/purchases/dashboard?' + params.join('&'));
+      renderDashboardCards(data || []);
+    } catch (e) {
+      $('dashboard-cards').innerHTML = '<div class="empty-state">Ошибка загрузки: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  function renderDashboardCards(items) {
+    var container = $('dashboard-cards');
+    if (!items.length) {
+      container.innerHTML = '<div class="empty-state">Нет закупок</div>';
+      return;
+    }
+
+    var moduleLabels = {
+      search_status: 'Поиск',
+      correspondence_status: 'Письма',
+      comparison_status: 'Сравнение',
+      regime_check_status: 'Нацрежим',
+    };
+
+    var fileTypeLabels = { tz: 'ТЗ', kp: 'КП', regime_kp: 'КП (нацрежим)' };
+
+    var html = '';
+    for (var i = 0; i < items.length; i++) {
+      var p = items[i];
+      var name = escapeHtml(p.custom_name || p.full_name || 'Закупка #' + p.auto_number);
+      var date = new Date(p.created_at).toLocaleDateString('ru-RU');
+      var archivedClass = p.is_archived ? ' archived' : '';
+
+      // Progress dots
+      var progressHtml = '';
+      var keys = ['search_status', 'correspondence_status', 'comparison_status', 'regime_check_status'];
+      for (var m = 0; m < keys.length; m++) {
+        var st = p[keys[m]] || 'not_started';
+        progressHtml += '<div class="dashboard-module"><span class="module-dot ' + st + '"></span>' + moduleLabels[keys[m]] + '</div>';
+      }
+
+      // Metrics
+      var metricsHtml =
+        '<span class="dashboard-metric"><b>' + p.lots_count + '</b> лотов</span>' +
+        '<span class="dashboard-metric"><b>' + p.suppliers_count + '</b> поставщиков</span>' +
+        '<span class="dashboard-metric"><b>' + p.bids_count + '</b> КП</span>';
+
+      // Files
+      var filesHtml = '';
+      if (p.files && p.files.length) {
+        for (var f = 0; f < p.files.length; f++) {
+          var fl = p.files[f];
+          var typeLabel = fileTypeLabels[fl.file_type] || fl.file_type;
+          filesHtml += '<span class="dashboard-file-chip">' + typeLabel + ': ' + escapeHtml(fl.filename) + '</span>';
+        }
+      }
+
+      var archiveBtnLabel = p.is_archived ? 'Восстановить' : 'В архив';
+      var archiveBtnNewState = p.is_archived ? 'false' : 'true';
+
+      html += '<div class="dashboard-card' + archivedClass + '">' +
+        '<div class="dashboard-card-header"><div class="dashboard-card-name">' + name + '</div><div class="dashboard-card-date">' + date + '</div></div>' +
+        '<div class="dashboard-progress">' + progressHtml + '</div>' +
+        '<div class="dashboard-metrics">' + metricsHtml + '</div>' +
+        (filesHtml ? '<div class="dashboard-files">' + filesHtml + '</div>' : '') +
+        '<div class="dashboard-actions">' +
+        '<button class="btn btn-sm btn-secondary btn-archive-purchase" data-pid="' + p.id + '" data-archive="' + archiveBtnNewState + '">' + archiveBtnLabel + '</button>' +
+        '<button class="btn btn-sm btn-primary btn-open-purchase" data-pid="' + p.id + '">Открыть</button>' +
+        '</div></div>';
+    }
+    container.innerHTML = html;
+
+    // Bind open buttons
+    container.querySelectorAll('.btn-open-purchase').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var pid = parseInt(this.getAttribute('data-pid'));
+        var found = purchases.find(function (pp) { return pp.id === pid; });
+        if (found) {
+          selectPurchase(found);
+        } else {
+          // Purchase might be archived — load it directly
+          API.apiFetch('/purchases/' + pid).then(function (pp) {
+            if (pp) selectPurchase(pp);
+          });
+        }
+        // Switch to search tab
+        var searchTab = document.querySelector('.sidebar .tab[data-tab="search"]');
+        if (searchTab) searchTab.click();
+      });
+    });
+
+    // Bind archive buttons
+    container.querySelectorAll('.btn-archive-purchase').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        var pid = this.getAttribute('data-pid');
+        var newArchived = this.getAttribute('data-archive') === 'true';
+        var action = newArchived ? 'архивировать' : 'восстановить';
+        if (!confirm('Вы уверены, что хотите ' + action + ' закупку?')) return;
+        try {
+          await API.apiFetch('/purchases/' + pid, { method: 'PATCH', body: { is_archived: newArchived } });
+          loadDashboard();
+          loadPurchases();
+        } catch (e) {
+          showError('Ошибка: ' + e.message);
+        }
+      });
+    });
+  }
+
+  function initDashboard() {
+    var filterArchived = $('dashboard-filter-archived');
+    var sortSel = $('dashboard-sort');
+    if (filterArchived) filterArchived.addEventListener('change', function () { loadDashboard(); });
+    if (sortSel) sortSel.addEventListener('change', function () { loadDashboard(); });
+  }
+
+  function trackFile(purchaseId, filename, fileType) {
+    API.apiFetch('/purchases/' + purchaseId + '/files', {
+      method: 'POST',
+      body: { filename: filename, file_type: fileType },
+    }).catch(function () { /* non-critical */ });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     initModals();
     initTabs();
     initHeader();
+    initDashboard();
     initPurchaseSelector();
     initCreatePurchase();
     initTzUpload();
@@ -1357,6 +1497,7 @@
     initComparison();
     initRegime();
     loadPurchases();
+    loadDashboard();
   });
 
 })();

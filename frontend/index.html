@@ -47,8 +47,11 @@
 
     <!-- ===== SIDEBAR ===== -->
     <nav class="sidebar">
+      <div class="tab active" data-tab="dashboard">
+        &#128203; Мои закупки
+      </div>
       <div class="sidebar-label">Этапы закупки</div>
-      <div class="tab active" data-tab="search">
+      <div class="tab" data-tab="search">
         &#128270; Поиск
         <span class="badge hidden" id="badge-search"></span>
       </div>
@@ -67,8 +70,29 @@
     <!-- ===== MAIN ===== -->
     <div class="main">
 
+      <!-- ==================== TAB 0: DASHBOARD ==================== -->
+      <div class="tab-content active" id="tab-dashboard">
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <select id="dashboard-filter-archived" class="form-input" style="width:auto">
+              <option value="false">Активные</option>
+              <option value="true">Архивные</option>
+              <option value="">Все</option>
+            </select>
+            <select id="dashboard-sort" class="form-input" style="width:auto">
+              <option value="created_at_desc">Сначала новые</option>
+              <option value="created_at_asc">Сначала старые</option>
+              <option value="updated_at_desc">Недавно обновлённые</option>
+            </select>
+          </div>
+        </div>
+        <div id="dashboard-cards">
+          <div class="empty-state">Загрузка...</div>
+        </div>
+      </div>
+
       <!-- ==================== TAB 1: SEARCH ==================== -->
-      <div class="tab-content active" id="tab-search">
+      <div class="tab-content" id="tab-search">
         <div class="two-col">
           <!-- LEFT: Lots -->
           <div>

@@ -31,8 +31,17 @@ class Purchase(SQLModel, table=True):
     status: str = Field(default="draft")
     nmck_value: Optional[float] = None
     nmck_currency: Optional[str] = None
+    is_archived: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PurchaseFile(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    purchase_id: int = Field(foreign_key="purchase.id")
+    filename: str
+    file_type: str  # "tz", "kp", "regime_kp"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Supplier(SQLModel, table=True):
@@ -183,6 +192,16 @@ class RegimeCheckItem(SQLModel, table=True):
 
     # Overall status
     overall_status: str = Field(default="pending")
+
+
+class Lead(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    email: str
+    company: Optional[str] = None
+    phone: Optional[str] = None
+    status: str = Field(default="new")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class RegistryProduct(SQLModel, table=True):

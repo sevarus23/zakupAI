@@ -75,6 +75,7 @@ class PurchaseUpdate(BaseModel):
     status: Optional[str] = None
     nmck_value: Optional[float] = None
     nmck_currency: Optional[str] = None
+    is_archived: Optional[bool] = None
 
 
 class PurchaseRead(BaseModel):
@@ -86,8 +87,41 @@ class PurchaseRead(BaseModel):
     status: str
     nmck_value: Optional[float]
     nmck_currency: Optional[str]
+    is_archived: bool = False
     created_at: datetime
     updated_at: datetime
+
+
+class PurchaseFileCreate(BaseModel):
+    filename: str
+    file_type: str
+
+
+class PurchaseFileRead(BaseModel):
+    id: int
+    filename: str
+    file_type: str
+    created_at: datetime
+
+
+class PurchaseDashboardRead(BaseModel):
+    id: int
+    auto_number: int
+    full_name: str
+    custom_name: Optional[str]
+    status: str
+    is_archived: bool = False
+    created_at: datetime
+    updated_at: datetime
+    lots_count: int = 0
+    suppliers_count: int = 0
+    bids_count: int = 0
+    regime_status: Optional[str] = None
+    files: List[PurchaseFileRead] = Field(default_factory=list)
+    search_status: str = "not_started"
+    correspondence_status: str = "not_started"
+    comparison_status: str = "not_started"
+    regime_check_status: str = "not_started"
 
 
 class SupplierCreate(BaseModel):
@@ -328,3 +362,20 @@ class LotComparisonResponse(BaseModel):
     created_at: datetime
     note: Optional[str] = None
     rows: List[LotComparisonRowRead] = Field(default_factory=list)
+
+
+class LeadCreate(BaseModel):
+    name: str
+    email: EmailStr
+    company: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class LeadRead(BaseModel):
+    id: int
+    name: str
+    email: str
+    company: Optional[str]
+    phone: Optional[str]
+    status: str
+    created_at: datetime

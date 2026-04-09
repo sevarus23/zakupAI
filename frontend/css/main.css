@@ -272,6 +272,87 @@ body {
   align-items: start;
 }
 
+/* ===== DASHBOARD CARDS ===== */
+.dashboard-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  margin-bottom: 12px;
+  transition: box-shadow 0.2s;
+}
+.dashboard-card:hover { box-shadow: var(--shadow-lg); }
+.dashboard-card.archived { opacity: 0.6; }
+.dashboard-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+.dashboard-card-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+.dashboard-card-date {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.dashboard-progress {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.dashboard-module {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.module-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.module-dot.done { background: var(--success); }
+.module-dot.in_progress { background: var(--warning); }
+.module-dot.not_started { background: #d1d5db; }
+.dashboard-metrics {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.dashboard-metric {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.dashboard-metric b {
+  color: var(--text);
+  font-weight: 600;
+}
+.dashboard-files {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.dashboard-file-chip {
+  font-size: 11px;
+  background: var(--accent-light);
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.dashboard-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 /* ===== CARDS ===== */
 .card {
   background: var(--card);
