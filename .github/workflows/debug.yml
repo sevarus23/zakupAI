@@ -15,17 +15,11 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /opt/zakupai
-            echo "=== RESET supplier_search TASKS ==="
-            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "UPDATE llmtask SET status='queued', output_text=NULL WHERE task_type IN ('supplier_search','supplier_search_perplexity') AND status IN ('completed','in_progress','failed');"
-            echo ""
             echo "=== TASK STATUS ==="
-            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "SELECT id, task_type, status, created_at FROM llmtask ORDER BY created_at DESC LIMIT 10;"
+            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "SELECT id, task_type, status, created_at, substring(output_text for 300) as output_excerpt FROM llmtask ORDER BY created_at DESC LIMIT 10;"
             echo ""
-            echo "=== ENABLE_EMBEDDED_QUEUE CHECK ==="
-            docker compose -f docker-compose.prod.yml exec -T backend env | grep ENABLE
+            echo "=== SUPPLIERS IN DB ==="
+            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "SELECT id, purchase_id, company_name, website_url, relevance_score FROM supplier ORDER BY id DESC LIMIT 10;"
             echo ""
-            echo "=== ETL LAST 30 LOGS ==="
-            docker compose -f docker-compose.prod.yml logs etl --tail=30
-            echo ""
-            echo "=== CONTAINER STATUS ==="
-            docker compose -f docker-compose.prod.yml ps
+            echo "=== ETL LOGS ==="
+            docker compose -f docker-compose.prod.yml logs etl --tail=50
