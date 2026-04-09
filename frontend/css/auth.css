@@ -1,5 +1,6 @@
 /* ============================================================
    ZakupAI — Auth Page Styles (Login / Register)
+   Uses variables from main.css (:root)
    ============================================================ */
 
 .auth-page {
@@ -7,14 +8,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-4);
+  padding: 16px;
   background:
-    radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.06) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 20%, rgba(16, 185, 129, 0.05) 0%, transparent 50%),
-    var(--bg-page);
+    radial-gradient(ellipse at 20% 50%, rgba(91, 106, 191, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(59, 184, 168, 0.05) 0%, transparent 50%),
+    var(--bg);
 }
 
-/* Subtle dot pattern */
 .auth-page::before {
   content: '';
   position: fixed;
@@ -31,13 +31,12 @@
   position: relative;
   width: 100%;
   max-width: 420px;
-  background: var(--bg-card);
-  border-radius: var(--border-radius-xl);
-  box-shadow: var(--shadow-md);
+  background: var(--card);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 
-/* Gradient accent line at top */
 .auth-card::before {
   content: '';
   position: absolute;
@@ -45,66 +44,67 @@
   left: 0;
   right: 0;
   height: 3px;
-  background: var(--color-gradient);
+  background: var(--gradient);
 }
 
 .auth-card-body {
-  padding: var(--space-8) var(--space-8) var(--space-6);
+  padding: 32px 32px 24px;
 }
 
 /* ---- Logo ---- */
 
 .auth-logo {
   text-align: center;
-  margin-bottom: var(--space-6);
+  margin-bottom: 24px;
 }
 
 .auth-logo-text {
-  font-size: var(--font-size-2xl);
+  font-size: 28px;
   font-weight: 700;
   letter-spacing: -0.03em;
-  background: var(--color-gradient);
+  background: var(--gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .auth-logo-sub {
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
-  margin-top: var(--space-1);
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
 }
 
 /* ---- Tab Toggle (Login / Register) ---- */
 
 .auth-tabs {
   display: flex;
-  background: var(--bg-muted);
-  border-radius: var(--border-radius);
+  background: var(--bg);
+  border-radius: var(--radius);
   padding: 3px;
-  margin-bottom: var(--space-6);
+  margin-bottom: 24px;
 }
 
 .auth-tab {
   flex: 1;
-  padding: var(--space-2) var(--space-4);
+  padding: 8px 16px;
   border: none;
   background: transparent;
-  font-size: var(--font-size-sm);
+  font-size: 14px;
   font-weight: 500;
-  color: var(--text-muted);
-  border-radius: calc(var(--border-radius) - 3px);
-  transition: all var(--transition);
+  color: var(--text-secondary);
+  border-radius: calc(var(--radius) - 3px);
+  cursor: pointer;
+  transition: all 0.2s;
   text-align: center;
 }
 
 .auth-tab:hover {
-  color: var(--text-primary);
+  color: var(--text);
 }
 
 .auth-tab.active {
-  background: var(--bg-card);
-  color: var(--text-primary);
+  background: var(--card);
+  color: var(--text);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
 
@@ -113,17 +113,17 @@
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: 20px;
 }
 
 .auth-field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 6px;
 }
 
 .auth-field label {
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -154,19 +154,20 @@
   justify-content: center;
   border: none;
   background: transparent;
-  color: var(--text-light);
-  border-radius: var(--border-radius-sm);
-  transition: color var(--transition-fast);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s;
 }
 
 .auth-pw-toggle:hover {
-  color: var(--text-muted);
+  color: var(--text);
 }
 
 /* Field error */
 .auth-field-error {
-  font-size: var(--font-size-xs);
-  color: var(--color-danger);
+  font-size: 12px;
+  color: var(--danger);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -177,32 +178,32 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--color-danger);
+  background: var(--danger);
   flex-shrink: 0;
 }
 
 /* ---- Password Hint Box ---- */
 
 .auth-pw-hints {
-  background: var(--bg-muted);
-  border-radius: var(--border-radius);
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .auth-pw-hints-title {
   font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: var(--space-2);
+  color: var(--text);
+  margin-bottom: 8px;
 }
 
 .auth-pw-hint-item {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 8px;
   padding: 2px 0;
-  transition: color var(--transition-fast);
+  transition: color 0.15s;
 }
 
 .auth-pw-hint-icon {
@@ -210,8 +211,8 @@
   height: 14px;
   flex-shrink: 0;
   border-radius: 50%;
-  border: 1.5px solid var(--border-input);
-  transition: all var(--transition-fast);
+  border: 1.5px solid var(--border);
+  transition: all 0.15s;
 }
 
 .auth-pw-hint-item.valid {
@@ -219,8 +220,8 @@
 }
 
 .auth-pw-hint-item.valid .auth-pw-hint-icon {
-  border-color: var(--color-success);
-  background: var(--color-success);
+  border-color: var(--success);
+  background: var(--success);
 }
 
 /* ---- Global Error Message ---- */
@@ -228,12 +229,12 @@
 .auth-error {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-danger-bg);
-  border: 1px solid var(--color-danger-border);
-  border-radius: var(--border-radius);
-  font-size: var(--font-size-sm);
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--danger-bg);
+  border: 1px solid #fca5a5;
+  border-radius: var(--radius);
+  font-size: 14px;
   color: #991b1b;
 }
 
@@ -246,19 +247,20 @@
 .auth-submit {
   width: 100%;
   padding: 12px;
-  font-size: var(--font-size-base);
+  font-size: 15px;
   font-weight: 600;
-  background: var(--color-gradient);
-  color: var(--text-on-primary);
+  background: var(--gradient);
+  color: #fff;
   border: none;
-  border-radius: var(--border-radius-md);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
-  transition: all var(--transition);
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(91, 106, 191, 0.25);
+  transition: all 0.2s;
 }
 
 .auth-submit:hover:not(:disabled) {
-  background: var(--color-gradient-hover);
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  background: var(--gradient-hover);
+  box-shadow: 0 4px 14px rgba(91, 106, 191, 0.35);
   transform: translateY(-1px);
 }
 
@@ -271,7 +273,6 @@
   cursor: not-allowed;
 }
 
-/* Submit with loading */
 .auth-submit .spinner {
   width: 18px;
   height: 18px;
@@ -283,20 +284,20 @@
 /* ---- Footer Links ---- */
 
 .auth-footer {
-  padding: var(--space-4) var(--space-8) var(--space-6);
+  padding: 16px 32px 24px;
   text-align: center;
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
+  font-size: 14px;
+  color: var(--text-secondary);
 }
 
 .auth-footer a {
-  color: var(--color-indigo);
+  color: var(--accent);
   font-weight: 500;
-  transition: color var(--transition-fast);
+  transition: color 0.15s;
 }
 
 .auth-footer a:hover {
-  color: #4f46e5;
+  color: #4a59ae;
 }
 
 /* ---- Panels: show/hide login vs register ---- */
@@ -327,10 +328,10 @@
   }
 
   .auth-card-body {
-    padding: var(--space-6);
+    padding: 24px;
   }
 
   .auth-footer {
-    padding: var(--space-4) var(--space-6) var(--space-8);
+    padding: 16px 24px 32px;
   }
 }
