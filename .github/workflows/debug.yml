@@ -15,11 +15,5 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /opt/zakupai
-            echo "=== TASK STATUS ==="
-            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "SELECT id, task_type, status, created_at, substring(output_text for 300) as output_excerpt FROM llmtask ORDER BY created_at DESC LIMIT 10;"
-            echo ""
-            echo "=== SUPPLIERS IN DB ==="
-            docker compose -f docker-compose.prod.yml exec -T db psql -U zakupai -d zakupai -c "SELECT id, purchase_id, company_name, website_url, relevance_score FROM supplier ORDER BY id DESC LIMIT 10;"
-            echo ""
-            echo "=== ETL LOGS ==="
-            docker compose -f docker-compose.prod.yml logs etl --tail=50
+            echo "=== ETL FULL LOGS ==="
+            docker compose -f docker-compose.prod.yml logs etl --tail=200
