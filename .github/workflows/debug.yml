@@ -15,11 +15,17 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /opt/zakupai
-            echo "=== OPENROUTER_API_KEY check ==="
-            grep OPENROUTER_API_KEY .env 2>/dev/null && echo "PRESENT" || echo "MISSING"
-            echo ""
             echo "=== CONTAINER STATUS ==="
-            docker compose -f docker-compose.prod.yml ps
+            docker compose ps
             echo ""
-            echo "=== BACKEND LOGS (last 20) ==="
-            docker compose -f docker-compose.prod.yml logs --tail=20 backend 2>&1
+            echo "=== TASK STATUS ==="
+            docker compose exec -T db psql -U zakupai -d zakupai -c "SELECT id, task_type, status, created_at, substring(output_text for 200) as output_excerpt FROM llmtask WHERE purchase_id=3 ORDER BY created_at DESC LIMIT 5;"
+            echo ""
+            echo "=== BACKEND ERROR LOGS ==="
+            docker compose logs backend 2>&1 | grep -i -E "error|failed|exception|timeout|traceback" | tail -30
+            echo ""
+            echo "=== BACKEND LAST 30 LOGS ==="
+            docker compose logs backend --tail=30
+            echo ""
+            echo "=== ENV CHECK ==="
+            grep -E "OPENAI|OPENROUTER" .env 2>/dev/null | sed 's/=.*/=***/'
