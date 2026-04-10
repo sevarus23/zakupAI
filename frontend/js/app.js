@@ -234,6 +234,9 @@
   async function selectPurchase(purchase) {
     currentPurchase = purchase;
     clearPolling();
+    lastLotsStatus = null;
+    lastLotsError = null;
+    currentLots = [];
     updateSelectorText();
     renderPurchaseDropdown();
     // Load all data
@@ -343,15 +346,21 @@
 
   // ── Lots ───────────────────────────────────────────────────────────
 
+  var lastLotsStatus = null;
+  var lastLotsError = null;
+
   async function loadLots() {
     if (!currentPurchase) return;
+    if (lotsPollingTimer) { clearTimeout(lotsPollingTimer); lotsPollingTimer = null; }
     try {
       var resp = await API.apiFetch('/purchases/' + currentPurchase.id + '/lots');
       var status = resp.status;
       currentLots = resp.lots || [];
+      lastLotsStatus = status;
+      lastLotsError = resp.error_text || null;
       renderLots();
       updateLotsStatus(status);
-      // Poll if processing
+      // Poll while task is still running
       if (status === 'queued' || status === 'in_progress') {
         lotsPollingTimer = setTimeout(loadLots, 3000);
       }
@@ -360,22 +369,47 @@
     }
   }
 
+  async function retryLotsExtraction() {
+    if (!currentPurchase || !currentPurchase.terms_text) return;
+    try {
+      // Bump terms_text via PATCH to trigger a new enqueue (terms_text != original_terms is the trigger).
+      // We re-send the same content with a trailing newline toggle to force the diff check.
+      var bumped = currentPurchase.terms_text.endsWith('\n')
+        ? currentPurchase.terms_text.slice(0, -1)
+        : currentPurchase.terms_text + '\n';
+      await API.apiFetch('/purchases/' + currentPurchase.id, {
+        method: 'PATCH',
+        body: { terms_text: bumped },
+      });
+      currentPurchase.terms_text = bumped;
+      showMessage('Распознавание запущено повторно');
+      loadLots();
+    } catch (e) {
+      showError('Не удалось перезапустить распознавание: ' + e.message);
+    }
+  }
+
   function updateLotsStatus(status) {
     var statusEl = $('lots-status');
     var textEl = $('lots-status-text');
     statusEl.className = 'status';
-    if (status === 'done' || status === 'ready') {
-      statusEl.classList.add('status-active');
-      textEl.textContent = currentLots.length + ' распознано';
-      // Update badge
-      var badge = $('badge-search');
+    if (status === 'completed' || status === 'done' || status === 'ready') {
       if (currentLots.length > 0) {
+        statusEl.classList.add('status-active');
+        textEl.textContent = currentLots.length + ' распознано';
+        var badge = $('badge-search');
         badge.textContent = currentLots.length;
         badge.classList.remove('hidden');
+      } else {
+        statusEl.classList.add('status-draft');
+        textEl.textContent = 'Лоты не найдены';
       }
     } else if (status === 'queued' || status === 'in_progress') {
       statusEl.classList.add('status-search');
       textEl.textContent = 'Обработка...';
+    } else if (status === 'failed') {
+      statusEl.classList.add('status-draft');
+      textEl.textContent = 'Ошибка распознавания';
     } else {
       statusEl.classList.add('status-draft');
       textEl.textContent = '--';
@@ -385,6 +419,30 @@
   function renderLots() {
     var container = $('lots-container');
     var uploadCard = $('tz-upload-card');
+
+    // Empty + failed/empty-result → show error block with retry
+    if (!currentLots.length && (lastLotsStatus === 'failed' || (lastLotsStatus === 'completed' && currentPurchase && currentPurchase.terms_text))) {
+      var msg = lastLotsError
+        ? escapeHtml(lastLotsError)
+        : 'Не удалось распознать лоты в ТЗ. Попробуйте ещё раз или проверьте текст.';
+      container.innerHTML =
+        '<div class="empty-state" style="display:flex;flex-direction:column;gap:12px;align-items:center">' +
+          '<div style="color:var(--text-secondary);text-align:center;max-width:480px">' + msg + '</div>' +
+          '<button class="btn btn-primary" id="btn-retry-lots">Распознать ещё раз</button>' +
+        '</div>';
+      if (uploadCard) uploadCard.style.display = '';
+      var retryBtn = $('btn-retry-lots');
+      if (retryBtn) retryBtn.addEventListener('click', retryLotsExtraction);
+      return;
+    }
+
+    // Empty + processing → spinner-ish hint
+    if (!currentLots.length && (lastLotsStatus === 'queued' || lastLotsStatus === 'in_progress')) {
+      container.innerHTML = '<div class="empty-state">Распознаём лоты из ТЗ, это займёт до минуты…</div>';
+      if (uploadCard) uploadCard.style.display = '';
+      return;
+    }
+
     if (!currentLots.length) {
       container.innerHTML = '<div class="empty-state">Загрузите ТЗ или добавьте лоты вручную</div>';
       if (uploadCard) uploadCard.style.display = '';

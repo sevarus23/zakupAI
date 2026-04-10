@@ -303,6 +303,7 @@ class LotCreate(BaseModel):
 class LotsResponse(BaseModel):
     status: str
     lots: List[LotRead] = Field(default_factory=list)
+    error_text: Optional[str] = None
 
 
 class BidCreate(BaseModel):

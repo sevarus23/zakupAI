@@ -1,7 +1,7 @@
 import os
 import json
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -130,9 +130,9 @@ def create_purchase(payload: PurchaseCreate, session=Depends(get_session), curre
     session.refresh(purchase)
     if purchase.terms_text:
         try:
-            task_queue.run_lots_extraction_now(purchase.id, purchase.terms_text)
+            task_queue.enqueue_lots_extraction_task(purchase.id, purchase.terms_text)
         except Exception as exc:
-            print(f"[lots_extraction] immediate run failed: {exc}")
+            print(f"[lots_extraction] enqueue failed: {exc}")
     return purchase
 
 
@@ -279,9 +279,9 @@ def update_purchase(
     if payload.terms_text is not None and payload.terms_text != original_terms:
         if purchase.terms_text:
             try:
-                task_queue.run_lots_extraction_now(purchase.id, purchase.terms_text)
+                task_queue.enqueue_lots_extraction_task(purchase.id, purchase.terms_text)
             except Exception as exc:
-                print(f"[lots_extraction] immediate run failed: {exc}")
+                print(f"[lots_extraction] enqueue failed: {exc}")
     return purchase
 
 
@@ -431,17 +431,30 @@ def get_purchase_lots(
         .order_by(LLMTask.created_at.desc())
     ).first()
 
-    if (not task or task.status in ("queued", "in_progress")) and purchase.terms_text and not lots:
+    # Auto-enqueue if there's terms_text but no task at all, or the previous one failed and we still have no lots.
+    needs_enqueue = (
+        purchase.terms_text
+        and not lots
+        and (task is None or task.status == "failed")
+    )
+    if needs_enqueue:
         try:
-            task = task_queue.run_lots_extraction_now(purchase_id, purchase.terms_text)
+            task = task_queue.enqueue_lots_extraction_task(purchase_id, purchase.terms_text)
         except Exception as exc:
-            print(f"[lots_extraction] on-demand run failed: {exc}")
-            if not task:
-                task = task_queue.enqueue_lots_extraction_task(purchase_id, purchase.terms_text)
-        lots = _load_lots(session, purchase_id)
+            print(f"[lots_extraction] enqueue failed: {exc}")
 
     status_value = task.status if task else ("completed" if lots else "queued")
-    return LotsResponse(status=status_value, lots=lots)
+
+    error_text: Optional[str] = None
+    if task and task.status == "failed" and task.output_text:
+        try:
+            payload = json.loads(task.output_text)
+            if isinstance(payload, dict):
+                error_text = payload.get("error") or None
+        except Exception:
+            error_text = task.output_text[:500]
+
+    return LotsResponse(status=status_value, lots=lots, error_text=error_text)
 
 
 @app.post("/purchases/{purchase_id}/lots", response_model=LotRead, status_code=status.HTTP_201_CREATED)

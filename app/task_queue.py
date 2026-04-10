@@ -271,18 +271,27 @@ class TaskQueue:
                 print(f"[lots_extraction] start task={task.id} purchase={task.purchase_id}")
                 print(f"[lots_extraction] terms_text={terms_text}")
                 if not terms_text:
-                    task.output_text = json.dumps({"lots": []}, ensure_ascii=False)
-                    task.status = "completed"
+                    task.output_text = json.dumps({"error": "Пустой текст ТЗ"}, ensure_ascii=False)
+                    task.status = "failed"
                     session.add(task)
                     session.commit()
                     return
 
                 lots_payload = extract_lots(terms_text)
-                task.output_text = json.dumps(lots_payload, ensure_ascii=False)
-                task.status = "completed"
-                if task.purchase_id:
-                    self._sync_lots(session, task.purchase_id, lots_payload)
-                print(f"[lots_extraction] completed task={task.id} purchase={task.purchase_id}")
+                extracted = lots_payload.get("lots") or []
+                if not extracted:
+                    task.output_text = json.dumps(
+                        {"error": "Модель не нашла лоты в ТЗ. Проверьте текст или попробуйте ещё раз."},
+                        ensure_ascii=False,
+                    )
+                    task.status = "failed"
+                    print(f"[lots_extraction] empty result task={task.id} purchase={task.purchase_id}")
+                else:
+                    task.output_text = json.dumps(lots_payload, ensure_ascii=False)
+                    task.status = "completed"
+                    if task.purchase_id:
+                        self._sync_lots(session, task.purchase_id, lots_payload)
+                    print(f"[lots_extraction] completed task={task.id} purchase={task.purchase_id} lots={len(extracted)}")
             elif task.task_type == "bid_lots_extraction":
                 payload = self._load_payload(task.input_text)
                 terms_text = payload.get("terms_text", "")
@@ -310,6 +319,9 @@ class TaskQueue:
     @staticmethod
     def _sync_lots(session: Session, purchase_id: int, payload: Dict[str, Any]) -> None:
         lots_payload = payload.get("lots") or []
+        if not lots_payload:
+            # Safety net: never wipe existing lots when the new payload is empty.
+            return
         existing_lots = session.exec(select(Lot).where(Lot.purchase_id == purchase_id)).all()
         for lot in existing_lots:
             parameters = session.exec(select(LotParameter).where(LotParameter.lot_id == lot.id)).all()
