@@ -247,6 +247,7 @@
     searchStartTime = null;
     var lotsContainer = $('lots-container');
     if (lotsContainer) lotsContainer.innerHTML = '';
+    resetTzUploadZone();
     updateSelectorText();
     renderPurchaseDropdown();
     // Fetch full purchase (dashboard endpoint omits terms_text)
@@ -256,6 +257,14 @@
         currentPurchase = Object.assign({}, currentPurchase, full);
       }
     } catch (_) { /* fallback to dashboard data */ }
+    // Reflect already-uploaded TZ filename in the upload zone
+    try {
+      var files = await API.apiFetch('/purchases/' + purchase.id + '/files');
+      if (Array.isArray(files)) {
+        var tzFile = files.find(function (f) { return f.file_type === 'tz'; });
+        if (tzFile) markTzUploadZone(tzFile.filename);
+      }
+    } catch (_) { /* non-critical */ }
     // Load all data
     loadLots();
     loadSuppliers();
@@ -314,11 +323,46 @@
         this.reset();
         $('purchase-tz-label').textContent = 'Нажмите для загрузки';
         purchases.unshift(newPurchase);
-        selectPurchase(newPurchase);
+
+        // Switch to search tab BEFORE selectPurchase so the panel is visible
+        // when loadLots renders.
+        var searchTab = document.querySelector('.sidebar .tab[data-tab="search"]');
+        if (searchTab) searchTab.click();
+
+        await selectPurchase(newPurchase);
+
+        // Reflect the uploaded filename in the search-tab upload zone
+        if (file) markTzUploadZone(file.name);
       } catch (e) {
         showError('Ошибка создания закупки: ' + e.message);
       }
     });
+  }
+
+  function markTzUploadZone(filename) {
+    var zone = $('tz-upload-zone');
+    if (!zone) return;
+    var label = zone.querySelector('.label');
+    var hint = zone.querySelector('.hint');
+    if (label) {
+      label.textContent = filename;
+      label.style.color = 'var(--text-primary)';
+      label.style.fontWeight = '600';
+    }
+    if (hint) hint.style.display = 'none';
+  }
+
+  function resetTzUploadZone() {
+    var zone = $('tz-upload-zone');
+    if (!zone) return;
+    var label = zone.querySelector('.label');
+    var hint = zone.querySelector('.hint');
+    if (label) {
+      label.textContent = 'Загрузить ТЗ';
+      label.style.color = '';
+      label.style.fontWeight = '';
+    }
+    if (hint) hint.style.display = '';
   }
 
   // ── TZ Upload (on search tab) ─────────────────────────────────────

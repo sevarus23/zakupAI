@@ -302,6 +302,26 @@ def track_purchase_file(
     return pf
 
 
+@app.get("/purchases/{purchase_id}/files", response_model=List[PurchaseFileRead])
+def list_purchase_files(
+    purchase_id: int,
+    session=Depends(get_session),
+    current_user: User = Depends(auth.get_current_user),
+) -> List[PurchaseFileRead]:
+    purchase = session.get(Purchase, purchase_id)
+    if not purchase or purchase.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase not found")
+    files = session.exec(
+        select(PurchaseFile)
+        .where(PurchaseFile.purchase_id == purchase_id)
+        .order_by(col(PurchaseFile.created_at).desc())
+    ).all()
+    return [
+        PurchaseFileRead(id=f.id, filename=f.filename, file_type=f.file_type, created_at=f.created_at)
+        for f in files
+    ]
+
+
 def _load_lots(session, purchase_id: int) -> list[LotRead]:
     lots = session.exec(select(Lot).where(Lot.purchase_id == purchase_id)).all()
     lot_reads: list[LotRead] = []
