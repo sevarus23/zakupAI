@@ -101,6 +101,7 @@ class LLMTask(SQLModel, table=True):
     output_text: Optional[str] = None
     status: str = Field(default="queued")
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
 
 
 class Bid(SQLModel, table=True):

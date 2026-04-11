@@ -1628,17 +1628,44 @@
 
   var lastDiagPayload = null;
 
+  function _fmtAge(s) {
+    if (typeof s !== 'number') return '';
+    var m = Math.floor(s / 60);
+    var sec = s % 60;
+    return (m > 0 ? m + 'м ' : '') + sec + 'с';
+  }
+
   function _formatTaskBlock(t) {
-    var ageStr = '';
-    if (typeof t.age_seconds === 'number') {
-      var s = t.age_seconds;
-      var m = Math.floor(s / 60);
-      var sec = s % 60;
-      ageStr = ' (' + (m > 0 ? m + 'м ' : '') + sec + 'с назад)';
+    var createdAge = typeof t.age_seconds === 'number' ? ' (создана ' + _fmtAge(t.age_seconds) + ' назад)' : '';
+    var updateLine = '';
+    if (typeof t.seconds_since_update === 'number') {
+      var stuckMarker = '';
+      if (t.status === 'in_progress' && t.seconds_since_update > 120) {
+        stuckMarker = '  ⚠ ВОЗМОЖНО ЗАВИСЛА (нет обновлений > 2 мин)';
+      }
+      updateLine = 'Последнее обновление: ' + _fmtAge(t.seconds_since_update) + ' назад' + stuckMarker + '\n';
     }
-    return '\n--- Task #' + t.id + ' [' + t.status + '] ' + t.task_type + ' ' + (t.created_at || '') + ageStr + ' ---\n' +
+    return '\n--- Task #' + t.id + ' [' + t.status + '] ' + t.task_type + createdAge + ' ---\n' +
+      updateLine +
       'Input (' + t.input_length + ' chars):\n' + (t.input_preview || '') + '\n' +
       'Output (' + t.output_length + ' chars):\n' + (t.output_preview || '') + '\n';
+  }
+
+  async function resetTask(taskType) {
+    if (!currentPurchase) return;
+    if (!confirm('Принудительно сбросить активную задачу "' + taskType + '"? Это пометит её как failed, и можно будет запустить заново.')) return;
+    try {
+      var resp = await API.apiFetch('/purchases/' + currentPurchase.id + '/tasks/reset?task_type=' + encodeURIComponent(taskType), {
+        method: 'POST',
+      });
+      showMessage('Сброшено задач: ' + (resp.reset || 0));
+      loadLotsDiagnostics();
+      // Refresh main UI as well so the lots/search panels update
+      if (taskType === 'lots_extraction') loadLots();
+      if (taskType === 'supplier_search' || taskType === 'supplier_search_perplexity') checkSearchStatus();
+    } catch (e) {
+      showError('Не удалось сбросить: ' + e.message);
+    }
   }
 
   async function loadLotsDiagnostics() {
@@ -1735,6 +1762,10 @@
         }
       });
     }
+    var resetLotsBtn = $('btn-diag-reset-lots');
+    if (resetLotsBtn) resetLotsBtn.addEventListener('click', function () { resetTask('lots_extraction'); });
+    var resetSearchBtn = $('btn-diag-reset-search');
+    if (resetSearchBtn) resetSearchBtn.addEventListener('click', function () { resetTask('supplier_search'); });
   }
 
   document.addEventListener('DOMContentLoaded', function () {

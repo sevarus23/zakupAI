@@ -17,6 +17,7 @@ def create_db_and_tables() -> None:
     _ensure_supplier_contact_columns()
     _ensure_user_columns()
     _ensure_purchase_columns()
+    _ensure_llmtask_columns()
 
 
 def _ensure_supplier_contact_columns() -> None:
@@ -61,6 +62,19 @@ def _ensure_purchase_columns() -> None:
             if column_name in existing_columns:
                 continue
             conn.execute(text(f"ALTER TABLE purchase ADD COLUMN {column_name} {column_type}"))
+
+
+def _ensure_llmtask_columns() -> None:
+    expected_columns = {
+        "updated_at": "TIMESTAMP",
+    }
+    with engine.begin() as conn:
+        inspector = inspect(conn)
+        existing_columns = {column["name"] for column in inspector.get_columns("llmtask")}
+        for column_name, column_type in expected_columns.items():
+            if column_name in existing_columns:
+                continue
+            conn.execute(text(f"ALTER TABLE llmtask ADD COLUMN {column_name} {column_type}"))
 
 
 def get_session() -> Iterator[Session]:

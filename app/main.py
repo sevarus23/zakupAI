@@ -536,15 +536,22 @@ def get_lots_diagnostics(
     worker_alive = task_queue._thread.is_alive() if hasattr(task_queue, "_thread") else False
 
     def _serialize(t: LLMTask) -> dict:
+        now = datetime.utcnow()
         age_seconds = None
         if t.created_at:
-            age_seconds = int((datetime.utcnow() - t.created_at).total_seconds())
+            age_seconds = int((now - t.created_at).total_seconds())
+        updated_at = getattr(t, "updated_at", None)
+        seconds_since_update = None
+        if updated_at:
+            seconds_since_update = int((now - updated_at).total_seconds())
         return {
             "id": t.id,
             "status": t.status,
             "task_type": t.task_type,
             "created_at": t.created_at.isoformat() if t.created_at else None,
+            "updated_at": updated_at.isoformat() if updated_at else None,
             "age_seconds": age_seconds,
+            "seconds_since_update": seconds_since_update,
             "input_preview": (t.input_text or "")[:500],
             "output_preview": (t.output_text or "")[:2000],
             "input_length": len(t.input_text or ""),
@@ -570,6 +577,53 @@ def get_lots_diagnostics(
         # Backward-compat alias for the old field name
         "tasks": [_serialize(t) for t in lots_tasks[:10]],
     }
+
+
+@app.post("/purchases/{purchase_id}/tasks/reset")
+def reset_purchase_tasks(
+    purchase_id: int,
+    task_type: str,
+    session=Depends(get_session),
+    current_user: User = Depends(auth.get_current_user),
+) -> dict:
+    """Force-fail any queued/in_progress tasks of the given type for this purchase.
+
+    Use case: a supplier_search task is stuck because the ETL container died
+    mid-run and the row never got reaped, OR the task is genuinely hung and
+    the user wants to start over without waiting for the 5-minute reaper.
+    """
+    purchase = session.get(Purchase, purchase_id)
+    if not purchase or purchase.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase not found")
+
+    allowed_types = {
+        "lots_extraction",
+        "supplier_search",
+        "supplier_search_perplexity",
+        "lot_comparison",
+    }
+    if task_type not in allowed_types:
+        raise HTTPException(status_code=400, detail=f"task_type must be one of {sorted(allowed_types)}")
+
+    rows = session.exec(
+        select(LLMTask).where(
+            LLMTask.purchase_id == purchase_id,
+            LLMTask.task_type == task_type,
+            LLMTask.status.in_(["queued", "in_progress"]),
+        )
+    ).all()
+    reset_count = 0
+    for t in rows:
+        t.status = "failed"
+        t.output_text = json.dumps(
+            {"error": "Принудительный сброс пользователем"}, ensure_ascii=False
+        )
+        t.updated_at = datetime.utcnow()
+        session.add(t)
+        reset_count += 1
+    if reset_count:
+        session.commit()
+    return {"reset": reset_count, "task_type": task_type, "purchase_id": purchase_id}
 
 
 @app.post("/purchases/{purchase_id}/lots", response_model=LotRead, status_code=status.HTTP_201_CREATED)

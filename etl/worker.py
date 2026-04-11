@@ -659,12 +659,14 @@ def _process_lot_comparison_task(task: LLMTask) -> None:
 
 def _write_progress(task_id: int, partial: Dict) -> None:
     """Persist intermediate progress so the frontend polling can see it."""
+    from datetime import datetime
     with Session(engine) as session:
         task_in_db = session.get(LLMTask, task_id)
         if not task_in_db:
             return
         # Keep status as in_progress; we just want to surface the note.
         task_in_db.output_text = json.dumps(partial, ensure_ascii=False)
+        task_in_db.updated_at = datetime.utcnow()
         session.add(task_in_db)
         session.commit()
     logger.info("[progress] task=%s note=%r", task_id, partial.get("note"))
@@ -691,6 +693,7 @@ def _process_task(task: LLMTask) -> None:
         if not task_in_db:
             return
 
+        from datetime import datetime
         created_suppliers: List[Dict] = []
         try:
             created_suppliers = _upsert_suppliers(session, task_in_db, result.get("processed_contacts", []))
@@ -704,13 +707,15 @@ def _process_task(task: LLMTask) -> None:
             payload = result | {"created_suppliers": created_suppliers, "note": note}
             task_in_db.output_text = json.dumps(payload, ensure_ascii=False)
             task_in_db.status = "completed"
+            task_in_db.updated_at = datetime.utcnow()
             session.add(task_in_db)
             session.commit()
             logger.info("Finished supplier search task %s", task.id)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Supplier ETL failed for task %s", task.id)
             task_in_db.status = "failed"
-            task_in_db.output_text = f"error: {exc}"
+            task_in_db.output_text = json.dumps({"error": str(exc)}, ensure_ascii=False)
+            task_in_db.updated_at = datetime.utcnow()
             session.add(task_in_db)
             session.commit()
         finally:
@@ -765,7 +770,9 @@ def run_worker() -> None:
                 time.sleep(POLL_INTERVAL)
                 continue
 
+            from datetime import datetime
             task.status = "in_progress"
+            task.updated_at = datetime.utcnow()
             session.add(task)
             session.commit()
             session.refresh(task)
