@@ -484,6 +484,61 @@ def get_purchase_lots(
     return LotsResponse(status=status_value, lots=lots, error_text=error_text)
 
 
+@app.get("/purchases/{purchase_id}/lots/diagnostics")
+def get_lots_diagnostics(
+    purchase_id: int,
+    session=Depends(get_session),
+    current_user: User = Depends(auth.get_current_user),
+) -> dict:
+    """Return full state of lots extraction for debugging from the UI."""
+    purchase = session.get(Purchase, purchase_id)
+    if not purchase or purchase.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase not found")
+
+    tasks = session.exec(
+        select(LLMTask)
+        .where(
+            LLMTask.purchase_id == purchase_id,
+            LLMTask.task_type == "lots_extraction",
+        )
+        .order_by(col(LLMTask.created_at).desc())
+    ).all()
+
+    lots_count = session.exec(
+        select(func.count(Lot.id)).where(Lot.purchase_id == purchase_id)
+    ).one()
+
+    embedded_queue_enabled = os.getenv("ENABLE_EMBEDDED_QUEUE", "false").lower() == "true"
+    worker_alive = task_queue._thread.is_alive() if hasattr(task_queue, "_thread") else False
+
+    return {
+        "purchase_id": purchase_id,
+        "purchase_status": purchase.status,
+        "has_terms_text": bool(purchase.terms_text),
+        "terms_text_length": len(purchase.terms_text or ""),
+        "terms_text_preview": (purchase.terms_text or "")[:300],
+        "lots_in_db": lots_count,
+        "embedded_queue_enabled": embedded_queue_enabled,
+        "worker_thread_alive": worker_alive,
+        "openai_api_key_set": bool(os.getenv("OPENAI_API_KEY")),
+        "openai_base_url": os.getenv("OPENAI_BASE_URL") or None,
+        "openai_model": os.getenv("OPENAI_MODEL", "gpt-5-mini"),
+        "tasks": [
+            {
+                "id": t.id,
+                "status": t.status,
+                "task_type": t.task_type,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "input_preview": (t.input_text or "")[:500],
+                "output_preview": (t.output_text or "")[:2000],
+                "input_length": len(t.input_text or ""),
+                "output_length": len(t.output_text or ""),
+            }
+            for t in tasks[:10]
+        ],
+    }
+
+
 @app.post("/purchases/{purchase_id}/lots", response_model=LotRead, status_code=status.HTTP_201_CREATED)
 def create_purchase_lot(
     purchase_id: int,

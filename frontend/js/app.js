@@ -410,15 +410,23 @@
   var lastLotsStatus = null;
   var lastLotsError = null;
 
+  function logDiag(label, payload) {
+    try {
+      console.log('[zakupAI/' + label + ']', payload);
+    } catch (_) {}
+  }
+
   async function loadLots() {
     if (!currentPurchase) return;
     if (lotsPollingTimer) { clearTimeout(lotsPollingTimer); lotsPollingTimer = null; }
+    logDiag('loadLots:start', { purchase_id: currentPurchase.id });
     try {
       var resp = await API.apiFetch('/purchases/' + currentPurchase.id + '/lots');
       var status = resp.status;
       currentLots = resp.lots || [];
       lastLotsStatus = status;
       lastLotsError = resp.error_text || null;
+      logDiag('loadLots:resp', { status: status, lots_count: currentLots.length, error_text: resp.error_text });
       renderLots();
       updateLotsStatus(status);
       // Poll while task is still running
@@ -426,6 +434,7 @@
         lotsPollingTimer = setTimeout(loadLots, 3000);
       }
     } catch (e) {
+      logDiag('loadLots:error', { message: e.message });
       showError('Ошибка загрузки лотов: ' + e.message);
     }
   }
@@ -1615,6 +1624,94 @@
     }).catch(function () { /* non-critical */ });
   }
 
+  // ── Lots diagnostics ──────────────────────────────────────────────
+
+  var lastDiagPayload = null;
+
+  async function loadLotsDiagnostics() {
+    var contentEl = $('diag-content');
+    if (!currentPurchase) {
+      contentEl.textContent = 'Сначала выберите закупку';
+      return;
+    }
+    contentEl.textContent = 'Загрузка...';
+    try {
+      var data = await API.apiFetch('/purchases/' + currentPurchase.id + '/lots/diagnostics');
+      lastDiagPayload = data;
+      // Pretty-print with key insights at the top
+      var summary = [
+        '=== СВОДКА ===',
+        'Закупка ID:           ' + data.purchase_id,
+        'Статус закупки:       ' + data.purchase_status,
+        'ТЗ загружено:         ' + (data.has_terms_text ? 'да (' + data.terms_text_length + ' символов)' : 'НЕТ'),
+        'Лотов в БД:           ' + data.lots_in_db,
+        '',
+        '=== ВОРКЕР ===',
+        'ENABLE_EMBEDDED_QUEUE: ' + data.embedded_queue_enabled,
+        'Worker thread alive:  ' + data.worker_thread_alive,
+        '',
+        '=== LLM ===',
+        'OPENAI_API_KEY:       ' + (data.openai_api_key_set ? 'установлен' : 'НЕ УСТАНОВЛЕН'),
+        'OPENAI_BASE_URL:      ' + (data.openai_base_url || '(не задан)'),
+        'OPENAI_MODEL:         ' + data.openai_model,
+        '',
+        '=== ПРЕВЬЮ ТЗ ===',
+        data.terms_text_preview || '(пусто)',
+        '',
+        '=== ЗАДАЧИ (последние ' + (data.tasks ? data.tasks.length : 0) + ') ===',
+      ].join('\n');
+
+      var tasksText = '';
+      if (data.tasks && data.tasks.length) {
+        for (var i = 0; i < data.tasks.length; i++) {
+          var t = data.tasks[i];
+          tasksText += '\n--- Task #' + t.id + ' [' + t.status + '] (' + t.created_at + ') ---\n';
+          tasksText += 'Input (' + t.input_length + ' chars):\n' + t.input_preview + '\n';
+          tasksText += 'Output (' + t.output_length + ' chars):\n' + t.output_preview + '\n';
+        }
+      } else {
+        tasksText = '\n(задач нет — extraction не запускалось)\n';
+      }
+
+      contentEl.textContent = summary + tasksText + '\n\n=== СЫРОЙ JSON ===\n' + JSON.stringify(data, null, 2);
+      logDiag('diagnostics', data);
+    } catch (e) {
+      contentEl.textContent = 'Ошибка загрузки диагностики: ' + e.message;
+      logDiag('diagnostics:error', { message: e.message });
+    }
+  }
+
+  function initLotsDiagnostics() {
+    var btn = $('btn-lots-diag');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        openModal('modal-lots-diag');
+        loadLotsDiagnostics();
+      });
+    }
+    var refreshBtn = $('btn-diag-refresh');
+    if (refreshBtn) refreshBtn.addEventListener('click', loadLotsDiagnostics);
+    var copyBtn = $('btn-diag-copy');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function () {
+        if (!lastDiagPayload) return;
+        var text = JSON.stringify(lastDiagPayload, null, 2);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () {
+            showMessage('JSON скопирован в буфер обмена');
+          });
+        } else {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); showMessage('JSON скопирован'); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     initModals();
     initTabs();
@@ -1630,6 +1727,7 @@
     initAddBid();
     initComparison();
     initRegime();
+    initLotsDiagnostics();
     loadPurchases();
     loadDashboard();
   });

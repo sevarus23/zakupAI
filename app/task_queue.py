@@ -86,6 +86,11 @@ class TaskQueue:
 
     def enqueue_lots_extraction_task(self, purchase_id: int, terms_text: str) -> LLMTask:
         payload = {"terms_text": terms_text or ""}
+        terms_len = len(terms_text or "")
+        print(
+            f"[lots_extraction] enqueue called purchase={purchase_id} terms_len={terms_len} "
+            f"worker_alive={self._thread.is_alive() if hasattr(self, '_thread') else 'N/A'}"
+        )
         with Session(engine) as session:
             existing = session.exec(
                 select(LLMTask)
@@ -97,6 +102,9 @@ class TaskQueue:
                 .order_by(LLMTask.created_at.desc())
             ).first()
             if existing:
+                print(
+                    f"[lots_extraction] enqueue skipped: existing task id={existing.id} status={existing.status}"
+                )
                 return existing
 
             task = LLMTask(
@@ -108,6 +116,7 @@ class TaskQueue:
             session.add(task)
             session.commit()
             session.refresh(task)
+            print(f"[lots_extraction] enqueue created task id={task.id} status=queued")
             return task
 
     def run_lots_extraction_now(self, purchase_id: int, terms_text: str) -> LLMTask:
@@ -198,6 +207,7 @@ class TaskQueue:
                 session.commit()
 
     def _run(self) -> None:
+        print("[task_queue] worker thread started")
         self._recover_stale_tasks()
         while not self._stop_event.is_set():
             with Session(engine) as session:
@@ -218,6 +228,7 @@ class TaskQueue:
                     time.sleep(self.poll_interval)
                     continue
 
+                print(f"[task_queue] picked up task id={task.id} type={task.task_type}")
                 task.status = "in_progress"
                 session.add(task)
                 session.commit()
@@ -229,12 +240,18 @@ class TaskQueue:
 
             try:
                 self._process_task(task_id)
-            except Exception as exc:  # pragma: no cover - diagnostic only
+            except Exception as exc:
+                import traceback
+                tb = traceback.format_exc()
+                print(f"[task_queue] task {task_id} crashed: {exc}\n{tb}")
                 with Session(engine) as session:
                     errored = session.get(LLMTask, task_id)
                     if errored:
                         errored.status = "failed"
-                        errored.output_text = f"error: {exc}"
+                        errored.output_text = json.dumps(
+                            {"error": str(exc), "traceback": tb[-1500:]},
+                            ensure_ascii=False,
+                        )
                         session.add(errored)
                         session.commit()
 
@@ -268,20 +285,44 @@ class TaskQueue:
             elif task.task_type == "lots_extraction":
                 payload = self._load_payload(task.input_text)
                 terms_text = payload.get("terms_text", "")
-                print(f"[lots_extraction] start task={task.id} purchase={task.purchase_id}")
-                print(f"[lots_extraction] terms_text={terms_text}")
+                terms_len = len(terms_text or "")
+                print(
+                    f"[lots_extraction] start task={task.id} purchase={task.purchase_id} "
+                    f"terms_len={terms_len}"
+                )
+                print(f"[lots_extraction] terms_text_preview={terms_text[:500]!r}")
                 if not terms_text:
+                    print(f"[lots_extraction] empty terms task={task.id}")
                     task.output_text = json.dumps({"error": "Пустой текст ТЗ"}, ensure_ascii=False)
                     task.status = "failed"
                     session.add(task)
                     session.commit()
                     return
 
-                lots_payload = extract_lots(terms_text)
+                try:
+                    lots_payload = extract_lots(terms_text)
+                except Exception as exc:
+                    import traceback
+                    tb = traceback.format_exc()
+                    print(f"[lots_extraction] extract_lots raised: {exc}\n{tb}")
+                    task.output_text = json.dumps(
+                        {"error": f"LLM call failed: {exc}", "traceback": tb[-1500:]},
+                        ensure_ascii=False,
+                    )
+                    task.status = "failed"
+                    session.add(task)
+                    session.commit()
+                    return
+
+                print(f"[lots_extraction] extract_lots returned keys={list(lots_payload.keys())}")
                 extracted = lots_payload.get("lots") or []
+                print(f"[lots_extraction] extracted_lots_count={len(extracted)}")
                 if not extracted:
                     task.output_text = json.dumps(
-                        {"error": "Модель не нашла лоты в ТЗ. Проверьте текст или попробуйте ещё раз."},
+                        {
+                            "error": "Модель не нашла лоты в ТЗ. Проверьте текст или попробуйте ещё раз.",
+                            "raw_payload_preview": json.dumps(lots_payload, ensure_ascii=False)[:1000],
+                        },
                         ensure_ascii=False,
                     )
                     task.status = "failed"
