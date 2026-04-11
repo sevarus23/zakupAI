@@ -6,6 +6,7 @@
   var currentPurchase = null;
   var currentLots = [];
   var currentSuppliers = [];
+  var suppliersExpanded = false;
   var currentBids = [];
   var selectedBidId = null;
   var lotsPollingTimer = null;
@@ -237,6 +238,7 @@
     lastLotsStatus = null;
     lastLotsError = null;
     lotsExpanded = false;
+    suppliersExpanded = false;
     currentLots = [];
     // Reset DOM that can leak across purchases
     var searchStatusEl = $('search-status');
@@ -526,8 +528,8 @@
     }
     if (uploadCard) uploadCard.style.display = 'none';
 
-    // Collapse long lists to first 10 with "show more" toggle.
-    var COLLAPSE_THRESHOLD = 10;
+    // Collapse long lists to first 3 with "show more" toggle.
+    var COLLAPSE_THRESHOLD = 3;
     var shouldCollapse = currentLots.length > COLLAPSE_THRESHOLD && !lotsExpanded;
     var visibleCount = shouldCollapse ? COLLAPSE_THRESHOLD : currentLots.length;
 
@@ -873,9 +875,14 @@
     }
     exportBtn.classList.remove('hidden');
 
+    // Collapse long lists to first 3 with "show more" toggle (mirrors lots).
+    var SUPPLIERS_COLLAPSE_THRESHOLD = 3;
+    var shouldCollapse = currentSuppliers.length > SUPPLIERS_COLLAPSE_THRESHOLD && !suppliersExpanded;
+    var visibleCount = shouldCollapse ? SUPPLIERS_COLLAPSE_THRESHOLD : currentSuppliers.length;
+
     var html = '<table class="suppliers-table"><thead><tr>' +
-      '<th>Поставщик</th><th>Сайт</th><th>Источник</th><th style="width:40%">Причина</th><th>Контакты</th></tr></thead><tbody>';
-    for (var i = 0; i < currentSuppliers.length; i++) {
+      '<th>Поставщик</th><th>Сайт</th><th>Источник</th><th style="width:35%">Причина</th><th>Контакты</th></tr></thead><tbody>';
+    for (var i = 0; i < visibleCount; i++) {
       var s = currentSuppliers[i];
       var website = s.website_url ? '<a href="' + escapeHtml(s.website_url) + '" target="_blank" rel="noopener" style="color:var(--accent)">' + escapeHtml(s.website_url) + '</a>' : '—';
       var sourceClass = s.source === 'manual' ? 'source-manual' : 'source-ai';
@@ -885,20 +892,46 @@
         '<td>' + website + '</td>' +
         '<td><span class="source-tag ' + sourceClass + '">' + sourceLabel + '</span></td>' +
         '<td style="color:var(--text-secondary);font-size:13px">' + escapeHtml(s.reason || '') + '</td>' +
-        '<td class="supplier-contacts" id="contacts-' + s.id + '"><button type="button" class="btn btn-sm btn-secondary btn-load-contacts" data-sid="' + s.id + '">Показать</button></td>' +
+        '<td class="supplier-contacts" id="contacts-' + s.id + '"><span style="color:var(--text-secondary);font-size:12px">Загрузка…</span></td>' +
         '</tr>';
     }
     html += '</tbody></table>';
+
+    if (currentSuppliers.length > SUPPLIERS_COLLAPSE_THRESHOLD) {
+      if (shouldCollapse) {
+        var hidden = currentSuppliers.length - SUPPLIERS_COLLAPSE_THRESHOLD;
+        html += '<div class="lot-toggle" id="suppliers-toggle-row" style="text-align:center;padding:10px;cursor:pointer;color:var(--accent);font-weight:500;border-top:1px solid var(--border)">' +
+          'Показать ещё ' + hidden + ' ' + pluralSuppliers(hidden) + ' ▼' +
+          '</div>';
+      } else {
+        html += '<div class="lot-toggle" id="suppliers-toggle-row" style="text-align:center;padding:10px;cursor:pointer;color:var(--accent);font-weight:500;border-top:1px solid var(--border)">' +
+          'Свернуть ▲' +
+          '</div>';
+      }
+    }
+
     container.innerHTML = html;
 
-    // Bind contact loaders
-    var contactBtns = container.querySelectorAll('.btn-load-contacts');
-    for (var j = 0; j < contactBtns.length; j++) {
-      contactBtns[j].addEventListener('click', function () {
-        var sid = this.getAttribute('data-sid');
-        loadContacts(sid);
+    // Auto-load contacts for visible suppliers (no "Показать" button anymore).
+    for (var k = 0; k < visibleCount; k++) {
+      loadContacts(currentSuppliers[k].id);
+    }
+
+    var toggleRow = $('suppliers-toggle-row');
+    if (toggleRow) {
+      toggleRow.addEventListener('click', function () {
+        suppliersExpanded = !suppliersExpanded;
+        renderSuppliers();
       });
     }
+  }
+
+  function pluralSuppliers(n) {
+    var mod10 = n % 10;
+    var mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'поставщик';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'поставщика';
+    return 'поставщиков';
   }
 
   async function loadContacts(supplierId) {
