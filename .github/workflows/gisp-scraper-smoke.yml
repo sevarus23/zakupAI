@@ -21,14 +21,15 @@ jobs:
           # 8 minutes — building Chromium image is slow first time
           command_timeout: 8m
           script: |
-            set -e
+            # Don't fail-fast: we want every diagnostic block to run
+            set +e
             REG="${{ github.event.inputs.registry_number }}"
             cd /opt/zakupai
 
-            echo "=== git pull ==="
-            git fetch origin
-            git checkout feat/gisp-scraper-fix
-            git pull --ff-only origin feat/gisp-scraper-fix
+            echo "=== git pull (main branch already has the workflow) ==="
+            git fetch origin main
+            git reset --hard origin/main
+            git log --oneline -3
 
             echo ""
             echo "=== build gisp-scraper image ==="
@@ -57,10 +58,17 @@ jobs:
             "
 
             echo ""
+            echo "=== container network sanity ==="
+            docker compose -f docker-compose.prod.yml exec -T gisp-scraper sh -c "
+            getent ahosts gisp.gov.ru | head -5
+            python -c 'import socket; print(\"resolved IPv4:\", socket.getaddrinfo(\"gisp.gov.ru\", 443, socket.AF_INET))'
+            "
+
+            echo ""
             echo "=== /pp719/$REG ==="
             docker compose -f docker-compose.prod.yml exec -T gisp-scraper python -c "
             import urllib.request, json
-            r = urllib.request.urlopen('http://localhost:8000/pp719/$REG', timeout=30)
+            r = urllib.request.urlopen('http://localhost:8000/pp719/$REG', timeout=60)
             data = json.loads(r.read())
             print('status:', data.get('status'))
             print('matched_count:', data.get('matched_count'))
