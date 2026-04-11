@@ -147,6 +147,108 @@
         </div>
       </section>
 
+      <!-- ---- Usage Section ---- -->
+      <section id="usage-section" class="admin-section" style="margin-bottom: var(--space-8);">
+        <div class="admin-section-header">
+          <h2 class="admin-section-title">Использование LLM / API</h2>
+          <div class="admin-toolbar">
+            <div class="admin-filter">
+              <label for="usage-days">Период:</label>
+              <select id="usage-days" class="form-select">
+                <option value="1">1 день</option>
+                <option value="7">7 дней</option>
+                <option value="30" selected>30 дней</option>
+                <option value="90">90 дней</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="admin-stats" id="usage-totals" style="margin-bottom: var(--space-5);">
+          <div class="stat-card">
+            <div class="stat-content">
+              <div class="stat-value" id="usage-total-tokens">—</div>
+              <div class="stat-label">Всего токенов</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-content">
+              <div class="stat-value" id="usage-total-cost">—</div>
+              <div class="stat-label">Стоимость, USD</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-content">
+              <div class="stat-value" id="usage-total-calls">—</div>
+              <div class="stat-label">Вызовов API</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-content">
+              <div class="stat-value" id="usage-total-errors">—</div>
+              <div class="stat-label">Ошибок</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); margin-bottom: var(--space-5);">
+          <div class="admin-table-wrap">
+            <h3 style="margin: 0 0 var(--space-3) 0; font-size: var(--font-size-md); font-weight:600;">По каналам</h3>
+            <div class="table-wrap">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>Канал</th>
+                    <th>Вызовов</th>
+                    <th>Токенов</th>
+                    <th>Стоимость USD</th>
+                  </tr>
+                </thead>
+                <tbody id="usage-by-channel-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="admin-table-wrap">
+            <h3 style="margin: 0 0 var(--space-3) 0; font-size: var(--font-size-md); font-weight:600;">По операциям</h3>
+            <div class="table-wrap">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>Операция</th>
+                    <th>Канал</th>
+                    <th>Вызовов</th>
+                    <th>Токенов</th>
+                    <th>Стоимость USD</th>
+                  </tr>
+                </thead>
+                <tbody id="usage-by-operation-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="admin-table-wrap">
+          <h3 style="margin: 0 0 var(--space-3) 0; font-size: var(--font-size-md); font-weight:600;">Топ закупок по стоимости</h3>
+          <div class="table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Закупка</th>
+                  <th>Вызовов</th>
+                  <th>Токенов</th>
+                  <th>Стоимость USD</th>
+                </tr>
+              </thead>
+              <tbody id="usage-top-purchases-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <p id="usage-note" style="margin-top: var(--space-3); font-size: var(--font-size-xs); color: var(--text-muted);"></p>
+      </section>
+
       <!-- ---- Purchases Section ---- -->
       <section id="purchases-section" class="admin-section">
         <div class="admin-section-header">
@@ -384,10 +486,73 @@
           loadPurchases(getFilters());
         });
 
+        // --- Usage ---
+        function formatNumber(n) {
+          if (n == null) return '—';
+          return Number(n).toLocaleString('ru-RU');
+        }
+        function formatCost(c) {
+          if (c == null || c === 0) return '$0';
+          return '$' + Number(c).toFixed(c < 1 ? 4 : 2);
+        }
+
+        async function loadUsage() {
+          var days = document.getElementById('usage-days').value || '30';
+          try {
+            var data = await API.apiFetch('/admin/usage?days=' + encodeURIComponent(days));
+            if (!data) return;
+
+            var totals = data.totals || {};
+            document.getElementById('usage-total-tokens').textContent = formatNumber(totals.total_tokens);
+            document.getElementById('usage-total-cost').textContent = formatCost(totals.cost_usd);
+            document.getElementById('usage-total-calls').textContent = formatNumber(totals.rows);
+            document.getElementById('usage-total-errors').textContent = formatNumber(data.errors);
+
+            var byChannelTbody = document.getElementById('usage-by-channel-tbody');
+            byChannelTbody.innerHTML = (data.by_channel || []).map(function (r) {
+              return '<tr>'
+                + '<td>' + escapeHtml(r.channel || '—') + '</td>'
+                + '<td>' + formatNumber(r.calls) + '</td>'
+                + '<td>' + formatNumber(r.total_tokens) + '</td>'
+                + '<td>' + formatCost(r.cost_usd) + '</td>'
+                + '</tr>';
+            }).join('') || '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">Нет данных</td></tr>';
+
+            var byOpTbody = document.getElementById('usage-by-operation-tbody');
+            byOpTbody.innerHTML = (data.by_operation || []).map(function (r) {
+              return '<tr>'
+                + '<td>' + escapeHtml(r.operation || '—') + '</td>'
+                + '<td>' + escapeHtml(r.channel || '—') + '</td>'
+                + '<td>' + formatNumber(r.calls) + '</td>'
+                + '<td>' + formatNumber(r.total_tokens) + '</td>'
+                + '<td>' + formatCost(r.cost_usd) + '</td>'
+                + '</tr>';
+            }).join('') || '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Нет данных</td></tr>';
+
+            var topTbody = document.getElementById('usage-top-purchases-tbody');
+            topTbody.innerHTML = (data.top_purchases || []).map(function (r) {
+              return '<tr>'
+                + '<td>' + (r.purchase_id || '—') + '</td>'
+                + '<td>' + escapeHtml(r.purchase_name || '—') + '</td>'
+                + '<td>' + formatNumber(r.calls) + '</td>'
+                + '<td>' + formatNumber(r.total_tokens) + '</td>'
+                + '<td>' + formatCost(r.cost_usd) + '</td>'
+                + '</tr>';
+            }).join('') || '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Нет данных</td></tr>';
+
+            document.getElementById('usage-note').textContent = data.note || '';
+          } catch (err) {
+            console.error('Usage load error:', err);
+          }
+        }
+
+        document.getElementById('usage-days').addEventListener('change', loadUsage);
+
         // --- Initial load ---
         loadDashboard();
         loadUsers('');
         loadPurchases(getFilters());
+        loadUsage();
       })();
     </script>
 

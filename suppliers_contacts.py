@@ -15,6 +15,12 @@ from tqdm import tqdm
 
 from openai import OpenAI
 
+try:
+    from app.usage_tracking import record_usage
+except ImportError:  # pragma: no cover
+    def record_usage(*args, **kwargs):  # type: ignore
+        pass
+
 
 
 import re
@@ -209,16 +215,34 @@ def summarize_tz_for_single_supplier(tz_text: str) -> Dict[str, Any]:
 
     prompt = f"{SUMMARY_INSTRUCTIONS}\n\nИсходное техническое задание:\n{tz_text}"
 
-    response = client.chat.completions.create(
-        model=os.environ["OPENAI_MODEL"],
-        messages=[
-            {
-                "role": "system",
-                "content": "Ты помощник по структурированию технических заданий для поиска одного поставщика."
-            },
-            {"role": "user", "content": prompt},
-        ],
-        max_completion_tokens=2500,
+    model_name = os.environ["OPENAI_MODEL"]
+    try:
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Ты помощник по структурированию технических заданий для поиска одного поставщика."
+                },
+                {"role": "user", "content": prompt},
+            ],
+            max_completion_tokens=2500,
+            extra_body={"usage": {"include": True}},
+        )
+    except Exception as exc:
+        record_usage(
+            channel="openrouter",
+            operation="summarize_tz",
+            model=model_name,
+            success=False,
+            error_message=str(exc)[:500],
+        )
+        raise
+    record_usage(
+        channel="openrouter",
+        operation="summarize_tz",
+        model=model_name,
+        response=response,
     )
 
     raw_text = response.choices[0].message.content.strip()
@@ -289,20 +313,35 @@ def transform_answer_to_json(task: str, received_answer: str) -> Dict[str, Any]:
         Parsed JSON as dictionary
     """
     prompt = FIX_JSON_INSTRUCTIONS(task=task, received_answer=received_answer)
+    model_name = os.environ["OPENAI_MODEL"]
     try:
         response = client.chat.completions.create(
-            model=os.environ["OPENAI_MODEL"],
+            model=model_name,
             messages=[
                 {"role": "system", "content": "You are a JSON transformation specialist."},
                 {"role": "user", "content": prompt}
             ],
-            max_completion_tokens=2000
+            max_completion_tokens=2000,
+            extra_body={"usage": {"include": True}},
         )
-        
+        record_usage(
+            channel="openrouter",
+            operation="transform_answer_to_json",
+            model=model_name,
+            response=response,
+        )
+
         response_text = response.choices[0].message.content.strip()
         return parse_json_response(response_text)
-        
+
     except Exception as e:
+        record_usage(
+            channel="openrouter",
+            operation="transform_answer_to_json",
+            model=model_name,
+            success=False,
+            error_message=str(e)[:500],
+        )
         raise Exception(f"Failed to transform answer to JSON: {str(e)}")
 
 
@@ -718,7 +757,21 @@ def yandex_search_suppliers(query: str) -> List[Dict]:
             f"Search API request failed: status={status_code}, error={exc}, "
             f"query={query!r}, response={response_text}"
         )
+        record_usage(
+            channel="yandex",
+            operation="web_search",
+            success=False,
+            error_message=f"status={status_code} {str(exc)[:300]}",
+        )
         return []
+
+    # Yandex Search API не возвращает токены — пишем по запросу.
+    record_usage(
+        channel="yandex",
+        operation="web_search",
+        success=True,
+        request_count=1,
+    )
 
     try:
         result_json = response.json()
@@ -770,9 +823,10 @@ def doc_validation(technical_spec: str, doc) -> Tuple[bool, str]:
               False otherwise (marketplaces, aggregators, irrelevant industries, etc.)
     """
     task = DOC_VAL_INSTRUCTIONS.format(technical_spec=technical_spec, **doc)
+    model_name = os.environ["OPENAI_MODEL"]
     try:
         response = client.chat.completions.create(
-            model=os.environ["OPENAI_MODEL"],
+            model=model_name,
             messages=[
                 {
                     "role": "system",
@@ -781,6 +835,13 @@ def doc_validation(technical_spec: str, doc) -> Tuple[bool, str]:
                 {"role": "user", "content": task},
             ],
             max_completion_tokens=300,
+            extra_body={"usage": {"include": True}},
+        )
+        record_usage(
+            channel="openrouter",
+            operation="doc_validation",
+            model=model_name,
+            response=response,
         )
 
         raw = response.choices[0].message.content.strip()
@@ -791,6 +852,13 @@ def doc_validation(technical_spec: str, doc) -> Tuple[bool, str]:
         # В случае любой ошибки считаем результат нерелевантным,
         # чтобы не загрязнять выборку случайными сайтами.
         print("doc_validation error:", e)
+        record_usage(
+            channel="openrouter",
+            operation="doc_validation",
+            model=model_name,
+            success=False,
+            error_message=str(e)[:500],
+        )
         return False, "doc_validation error: " + str(e)
 
 
@@ -838,9 +906,10 @@ def company_validation(
         site_text_block = "Текстовое содержимое сайта практически отсутствует."
 
     task = COMPANY_VAL_INSTRUCTIONS.format(tz=tz, site_text_block=site_text_block)
+    model_name = os.environ["OPENAI_MODEL"]
     try:
         response = client.chat.completions.create(
-            model=os.environ["OPENAI_MODEL"],
+            model=model_name,
             messages=[
                 {
                     "role": "system",
@@ -849,6 +918,13 @@ def company_validation(
                 {"role": "user", "content": task},
             ],
             max_completion_tokens=400,
+            extra_body={"usage": {"include": True}},
+        )
+        record_usage(
+            channel="openrouter",
+            operation="company_validation",
+            model=model_name,
+            response=response,
         )
 
         raw = response.choices[0].message.content.strip()
@@ -864,6 +940,13 @@ def company_validation(
 
     except Exception as e:
         print("company_validation error:", e)
+        record_usage(
+            channel="openrouter",
+            operation="company_validation",
+            model=model_name,
+            success=False,
+            error_message=str(e)[:500],
+        )
         # В случае ошибки считаем сайт нерелевантным, но возвращаем структуру
         return {
             "is_relevant": False,

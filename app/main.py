@@ -1301,7 +1301,11 @@ def search_suppliers(
 
     if state.status == "completed" and not state.queries:
         try:
-            plan = build_search_queries(payload.terms_text or purchase.terms_text or "", payload.hints)
+            plan = build_search_queries(
+                payload.terms_text or purchase.terms_text or "",
+                payload.hints,
+                usage_ctx={"purchase_id": purchase_id, "user_id": current_user.id},
+            )
         except Exception as exc:  # noqa: BLE001
             print(f"[search_queries_generation] restore_failed: {exc}")
             plan = None

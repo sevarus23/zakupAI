@@ -1,9 +1,10 @@
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from openai import OpenAI
 
 from app.llm_openai import extract_structured_contacts_from_perplexity
+from app.usage_tracking import record_usage
 
 
 def _build_prompt(terms_text: str, min_contacts: int) -> str:
@@ -14,7 +15,11 @@ def _build_prompt(terms_text: str, min_contacts: int) -> str:
     )
 
 
-def search_suppliers_with_perplexity(terms_text: str) -> Dict[str, Any]:
+def search_suppliers_with_perplexity(
+    terms_text: str,
+    *,
+    usage_ctx: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured")
@@ -32,16 +37,36 @@ def search_suppliers_with_perplexity(terms_text: str) -> Dict[str, Any]:
     )
     model = os.getenv("PERPLEXITY_MODEL", "perplexity/sonar-pro-search")
 
-    response = client.chat.completions.create(
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            extra_body={"reasoning": {"enabled": True}, "usage": {"include": True}},
+        )
+    except Exception as exc:  # noqa: BLE001
+        record_usage(
+            channel="perplexity",
+            operation="supplier_search_perplexity",
+            model=model,
+            success=False,
+            error_message=str(exc)[:500],
+            **(usage_ctx or {}),
+        )
+        raise
+
+    record_usage(
+        channel="perplexity",
+        operation="supplier_search_perplexity",
         model=model,
-        messages=[{"role": "user", "content": prompt}],
-        extra_body={"reasoning": {"enabled": True}},
+        response=response,
+        **(usage_ctx or {}),
     )
+
     content = response.choices[0].message.content if response.choices else None
     if not content:
         raise RuntimeError("Empty response from Perplexity")
 
-    structured = extract_structured_contacts_from_perplexity(content, terms_text)
+    structured = extract_structured_contacts_from_perplexity(content, terms_text, usage_ctx=usage_ctx)
     return {
         "queries": [prompt],
         "tech_task_excerpt": (terms_text or "")[:160],

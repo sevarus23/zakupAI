@@ -1,7 +1,7 @@
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 try:
@@ -9,11 +9,13 @@ try:
         build_bid_lots_prompt_and_schema,
         build_lots_prompt_and_schema,
     )
+    from app.usage_tracking import record_usage
 except ImportError:  # pragma: no cover
     from lots_extraction_prompting import (
         build_bid_lots_prompt_and_schema,
         build_lots_prompt_and_schema,
     )
+    from usage_tracking import record_usage
 
 
 @dataclass
@@ -77,6 +79,12 @@ PERPLEXITY_SUPPLIERS_SCHEMA: Dict[str, Any] = {
 
 def _raw_create_chat_completion(client: OpenAI, **kwargs):
     kwargs.setdefault("timeout", 120.0)
+    # Попросить OpenRouter вернуть стоимость в response.usage. Безопасно для OpenAI
+    # SDK — поле extra_body просто прокидывается в JSON body запроса.
+    extra_body = kwargs.get("extra_body") or {}
+    if "usage" not in extra_body:
+        extra_body = {**extra_body, "usage": {"include": True}}
+        kwargs["extra_body"] = extra_body
     raw_response = client.chat.completions.with_raw_response.create(**kwargs)
     status_code = getattr(raw_response, "status_code", None)
     raw_text = None
@@ -138,7 +146,12 @@ def _build_search_queries_prompt(terms_text: str, hints: List[str]) -> List[Dict
     ]
 
 
-def build_search_queries(terms_text: str, hints: List[str] | None = None) -> GeneratedSearchPlan:
+def build_search_queries(
+    terms_text: str,
+    hints: List[str] | None = None,
+    *,
+    usage_ctx: Optional[Dict[str, Any]] = None,
+) -> GeneratedSearchPlan:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
@@ -149,6 +162,7 @@ def build_search_queries(terms_text: str, hints: List[str] | None = None) -> Gen
 
     messages = _build_search_queries_prompt(terms_text or "", hints or [])
     _log_prompt("search_queries_generation", messages)
+    response = None
     try:
         response = _raw_create_chat_completion(
             client,
@@ -159,7 +173,22 @@ def build_search_queries(terms_text: str, hints: List[str] | None = None) -> Gen
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[search_queries_generation] openai_request_failed: {exc}")
+        record_usage(
+            channel="openrouter",
+            operation="search_queries",
+            model=model,
+            success=False,
+            error_message=str(exc)[:500],
+            **(usage_ctx or {}),
+        )
         raise
+    record_usage(
+        channel="openrouter",
+        operation="search_queries",
+        model=model,
+        response=response,
+        **(usage_ctx or {}),
+    )
 
     output_text = response.choices[0].message.content if response.choices else None
     if not output_text:
@@ -208,7 +237,11 @@ def _check_truncated(response, tag: str, output_text: str) -> None:
         )
 
 
-def extract_lots(terms_text: str) -> Dict[str, Any]:
+def extract_lots(
+    terms_text: str,
+    *,
+    usage_ctx: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
@@ -220,6 +253,7 @@ def extract_lots(terms_text: str) -> Dict[str, Any]:
     messages = _build_lots_prompt(terms_text)
     _log_prompt("lots_extraction", messages)
     print(f"[lots_extraction] calling model={model} terms_chars={len(terms_text or '')}")
+    response = None
     try:
         response = _raw_create_chat_completion(
             client,
@@ -234,7 +268,23 @@ def extract_lots(terms_text: str) -> Dict[str, Any]:
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[lots_extraction] openai_request_failed: {exc}")
+        record_usage(
+            channel="openrouter",
+            operation="lots_extraction",
+            model=model,
+            success=False,
+            error_message=str(exc)[:500],
+            **(usage_ctx or {}),
+        )
         raise
+
+    record_usage(
+        channel="openrouter",
+        operation="lots_extraction",
+        model=model,
+        response=response,
+        **(usage_ctx or {}),
+    )
 
     output_text = response.choices[0].message.content if response.choices else None
     if not output_text:
@@ -255,7 +305,11 @@ def _build_bid_lots_prompt(terms_text: str) -> List[Dict[str, str]]:
     return [{"role": "user", "content": prompt}]
 
 
-def extract_bid_lots(terms_text: str) -> Dict[str, Any]:
+def extract_bid_lots(
+    terms_text: str,
+    *,
+    usage_ctx: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
@@ -267,6 +321,7 @@ def extract_bid_lots(terms_text: str) -> Dict[str, Any]:
     messages = _build_bid_lots_prompt(terms_text)
     _log_prompt("bid_lots_extraction", messages)
     print(f"[bid_lots_extraction] calling model={model} terms_chars={len(terms_text or '')}")
+    response = None
     try:
         response = _raw_create_chat_completion(
             client,
@@ -277,7 +332,23 @@ def extract_bid_lots(terms_text: str) -> Dict[str, Any]:
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[bid_lots_extraction] openai_request_failed: {exc}")
+        record_usage(
+            channel="openrouter",
+            operation="bid_lots_extraction",
+            model=model,
+            success=False,
+            error_message=str(exc)[:500],
+            **(usage_ctx or {}),
+        )
         raise
+
+    record_usage(
+        channel="openrouter",
+        operation="bid_lots_extraction",
+        model=model,
+        response=response,
+        **(usage_ctx or {}),
+    )
 
     output_text = response.choices[0].message.content if response.choices else None
     if not output_text:
@@ -293,7 +364,12 @@ def extract_bid_lots(terms_text: str) -> Dict[str, Any]:
         raise
 
 
-def extract_structured_contacts_from_perplexity(raw_answer: str, terms_text: str) -> Dict[str, Any]:
+def extract_structured_contacts_from_perplexity(
+    raw_answer: str,
+    terms_text: str,
+    *,
+    usage_ctx: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
@@ -325,12 +401,30 @@ def extract_structured_contacts_from_perplexity(raw_answer: str, terms_text: str
     ]
     _log_prompt("perplexity_contacts_postprocess", messages)
 
-    response = _raw_create_chat_completion(
-        client,
+    try:
+        response = _raw_create_chat_completion(
+            client,
+            model=model,
+            messages=messages,
+            response_format={"type": "json_schema", "json_schema": PERPLEXITY_SUPPLIERS_SCHEMA},
+            max_completion_tokens=2200,
+        )
+    except Exception as exc:  # noqa: BLE001
+        record_usage(
+            channel="openrouter",
+            operation="perplexity_postprocess",
+            model=model,
+            success=False,
+            error_message=str(exc)[:500],
+            **(usage_ctx or {}),
+        )
+        raise
+    record_usage(
+        channel="openrouter",
+        operation="perplexity_postprocess",
         model=model,
-        messages=messages,
-        response_format={"type": "json_schema", "json_schema": PERPLEXITY_SUPPLIERS_SCHEMA},
-        max_completion_tokens=2200,
+        response=response,
+        **(usage_ctx or {}),
     )
     output_text = response.choices[0].message.content if response.choices else None
     if not output_text:

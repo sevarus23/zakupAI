@@ -104,6 +104,31 @@ class LLMTask(SQLModel, table=True):
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
 
 
+class LLMUsage(SQLModel, table=True):
+    """One row per outbound LLM/search API call.
+
+    We never hardcode prices: prompt_tokens / completion_tokens / total_tokens
+    are taken from the API response, and cost_usd is recorded only when the
+    provider itself returns a cost (OpenRouter does via usage.cost). For
+    Yandex/Perplexity-without-cost we still track tokens or just the request.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    purchase_id: Optional[int] = Field(default=None, foreign_key="purchase.id", index=True)
+    task_id: Optional[int] = Field(default=None, foreign_key="llmtask.id", index=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    channel: str = Field(index=True)  # openrouter | perplexity | yandex
+    model: Optional[str] = None
+    operation: str = Field(index=True)  # lots_extraction | search_queries | crawl_validation | ...
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None  # only set if provider returned it
+    request_count: int = Field(default=1)  # for per-request billing (Yandex)
+    success: bool = Field(default=True)
+    error_message: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
 class Bid(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     purchase_id: int = Field(foreign_key="purchase.id")

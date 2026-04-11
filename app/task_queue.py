@@ -299,7 +299,11 @@ class TaskQueue:
                 terms_text = payload.get("terms_text", "")
                 hints = payload.get("hints") or []
                 print(f"[supplier_search] start task={task.id} purchase={task.purchase_id}")
-                plan = build_search_queries(terms_text, hints)
+                plan = build_search_queries(
+                    terms_text,
+                    hints,
+                    usage_ctx={"purchase_id": task.purchase_id, "task_id": task.id},
+                )
                 print(f"[supplier_search] completed task={task.id} queries={len(plan.queries)}")
                 task.output_text = json.dumps(
                     {
@@ -333,7 +337,10 @@ class TaskQueue:
                     return
 
                 try:
-                    lots_payload = extract_lots(terms_text)
+                    lots_payload = extract_lots(
+                        terms_text,
+                        usage_ctx={"purchase_id": task.purchase_id, "task_id": task.id},
+                    )
                 except Exception as exc:
                     import traceback
                     tb = traceback.format_exc()
@@ -379,7 +386,10 @@ class TaskQueue:
                     session.commit()
                     return
 
-                lots_payload = extract_bid_lots(terms_text)
+                lots_payload = extract_bid_lots(
+                    terms_text,
+                    usage_ctx={"purchase_id": task.purchase_id, "task_id": task.id},
+                )
                 task.output_text = json.dumps(lots_payload, ensure_ascii=False)
                 task.status = "completed"
                 self._sync_bid_lots(session, int(bid_id), lots_payload)

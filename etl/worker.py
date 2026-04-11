@@ -13,6 +13,7 @@ from app.models import BidLot, BidLotParameter, LLMTask, Lot, LotParameter, Purc
 from app.search_providers.perplexity import search_suppliers_with_perplexity
 from app.supplier_import import merge_contacts
 from app.task_queue import TaskQueue
+from app.usage_tracking import record_usage, set_usage_context
 from suppliers_contacts import (
     collect_contacts_from_websites,
     collect_yandex_search_output_from_text,
@@ -103,6 +104,7 @@ def _collect_combined_contacts(
     terms_text: str,
     task_type: str,
     progress_cb: ProgressCallback = None,
+    usage_ctx: Optional[Dict] = None,
 ) -> Dict:
     """Run the supplier-discovery pipeline.
 
@@ -154,7 +156,7 @@ def _collect_combined_contacts(
 
     try:
         logger.info("[supplier_search] starting Perplexity stage")
-        perplexity_result = search_suppliers_with_perplexity(terms_text)
+        perplexity_result = search_suppliers_with_perplexity(terms_text, usage_ctx=usage_ctx)
         notes.append("Perplexity обработан")
         logger.info(
             "[supplier_search] Perplexity done: queries=%s sites=%s",
@@ -371,13 +373,21 @@ def _classify_match(
             messages=messages,
             response_format={"type": "json_object"},
             temperature=0,
+            extra_body={"usage": {"include": True}},
         )
     except Exception:
         response = client.chat.completions.create(
             model=OPENROUTER_MATCH_MODEL,
             messages=messages,
             temperature=0,
+            extra_body={"usage": {"include": True}},
         )
+    record_usage(
+        channel="openrouter",
+        operation="lot_match_classify",
+        model=OPENROUTER_MATCH_MODEL,
+        response=response,
+    )
     content = response.choices[0].message.content if response.choices else ""
     payload = _extract_json_payload(content or "")
     candidate_ids = {candidate["id"] for candidate in candidate_lots}
@@ -431,13 +441,21 @@ def _classify_param_match(
             messages=messages,
             response_format={"type": "json_object"},
             temperature=0,
+            extra_body={"usage": {"include": True}},
         )
     except Exception:
         response = client.chat.completions.create(
             model=OPENROUTER_MATCH_MODEL,
             messages=messages,
             temperature=0,
+            extra_body={"usage": {"include": True}},
         )
+    record_usage(
+        channel="openrouter",
+        operation="param_match_classify",
+        model=OPENROUTER_MATCH_MODEL,
+        response=response,
+    )
     content = response.choices[0].message.content if response.choices else ""
     payload = _extract_json_payload(content or "")
     candidate_ids = {candidate["id"] for candidate in candidate_params}
@@ -678,16 +696,20 @@ def _process_lot_comparison_task(task: LLMTask) -> None:
     if not purchase_id or not bid_id:
         raise RuntimeError("lot_comparison task requires purchase_id and bid_id")
 
-    with Session(engine) as session:
-        task_in_db = session.get(LLMTask, task.id)
-        if not task_in_db:
-            return
+    set_usage_context({"purchase_id": purchase_id, "task_id": task.id})
+    try:
+        with Session(engine) as session:
+            task_in_db = session.get(LLMTask, task.id)
+            if not task_in_db:
+                return
 
-        result = _build_lot_comparison_rows(session, purchase_id, bid_id)
-        task_in_db.output_text = json.dumps(result, ensure_ascii=False)
-        task_in_db.status = "completed"
-        session.add(task_in_db)
-        session.commit()
+            result = _build_lot_comparison_rows(session, purchase_id, bid_id)
+            task_in_db.output_text = json.dumps(result, ensure_ascii=False)
+            task_in_db.status = "completed"
+            session.add(task_in_db)
+            session.commit()
+    finally:
+        set_usage_context(None)
 
 
 def _write_progress(task_id: int, partial: Dict) -> None:
@@ -715,11 +737,19 @@ def _process_task(task: LLMTask) -> None:
 
     logger.info("Starting supplier search task %s", task.id)
     task_id = task.id  # capture for closure
-    result = _collect_combined_contacts(
-        terms_text,
-        task.task_type,
-        progress_cb=lambda partial: _write_progress(task_id, partial),
-    )
+    # Установим контекст для всех LLM/Yandex вызовов внутри пайплайна,
+    # чтобы record_usage автоматически связывал записи с этой задачей.
+    usage_ctx = {"purchase_id": task.purchase_id, "task_id": task.id}
+    set_usage_context(usage_ctx)
+    try:
+        result = _collect_combined_contacts(
+            terms_text,
+            task.task_type,
+            progress_cb=lambda partial: _write_progress(task_id, partial),
+            usage_ctx=usage_ctx,
+        )
+    finally:
+        set_usage_context(None)
 
     with Session(engine) as session:
         task_in_db = session.get(LLMTask, task.id)
