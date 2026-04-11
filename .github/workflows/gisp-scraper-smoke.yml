@@ -32,8 +32,8 @@ jobs:
             git log --oneline -3
 
             echo ""
-            echo "=== build gisp-scraper image ==="
-            docker compose -f docker-compose.prod.yml build gisp-scraper
+            echo "=== build gisp-scraper image (--no-cache to defeat layer reuse) ==="
+            docker compose -f docker-compose.prod.yml build --no-cache gisp-scraper
 
             echo ""
             echo "=== start gisp-scraper container ==="
