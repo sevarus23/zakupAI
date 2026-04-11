@@ -190,24 +190,47 @@ def _build_lots_prompt(terms_text: str) -> List[Dict[str, str]]:
     return [{"role": "user", "content": prompt}]
 
 
+def _check_truncated(response, tag: str, output_text: str) -> None:
+    """Raise a clear error if the model hit max_completion_tokens.
+    Without this we get JSONDecodeError ~25k chars in and the user has
+    no idea why."""
+    finish_reason = None
+    try:
+        finish_reason = response.choices[0].finish_reason if response.choices else None
+    except Exception:
+        pass
+    print(f"[{tag}] finish_reason={finish_reason} output_chars={len(output_text or '')}")
+    if finish_reason == "length":
+        raise RuntimeError(
+            f"Модель оборвала ответ по лимиту токенов (output={len(output_text or '')} chars). "
+            f"ТЗ слишком длинное для разовой обработки. Поднимите max_completion_tokens "
+            f"или разбейте ТЗ на части."
+        )
+
+
 def extract_lots(terms_text: str) -> Dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
 
     base_url = os.getenv("OPENAI_BASE_URL")
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=120.0)
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=180.0)
     model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
 
     messages = _build_lots_prompt(terms_text)
     _log_prompt("lots_extraction", messages)
+    print(f"[lots_extraction] calling model={model} terms_chars={len(terms_text or '')}")
     try:
         response = _raw_create_chat_completion(
             client,
             model=model,
             messages=messages,
             response_format={"type": "json_schema", "json_schema": LOTS_SCHEMA},
-            max_completion_tokens=8000,
+            # 16000 covers ~50k chars of structured JSON output, which
+            # handles long specs like the radiodetali TZ (29k char input,
+            # ~12k token output). 8000 was the previous cap and got
+            # truncated mid-string at ~25k output chars.
+            max_completion_tokens=16000,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[lots_extraction] openai_request_failed: {exc}")
@@ -217,10 +240,13 @@ def extract_lots(terms_text: str) -> Dict[str, Any]:
     if not output_text:
         raise RuntimeError("Empty response from OpenAI")
 
+    _check_truncated(response, "lots_extraction", output_text)
+
     try:
         return json.loads(output_text)
     except Exception as exc:  # noqa: BLE001
-        print(f"[lots_extraction] json_parse_failed: {exc}; raw_output={output_text}")
+        print(f"[lots_extraction] json_parse_failed: {exc}; raw_output_len={len(output_text)}")
+        print(f"[lots_extraction] raw_output_tail={output_text[-500:]!r}")
         raise
 
 
@@ -235,18 +261,19 @@ def extract_bid_lots(terms_text: str) -> Dict[str, Any]:
         raise RuntimeError("OPENAI_API_KEY is not configured")
 
     base_url = os.getenv("OPENAI_BASE_URL")
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=120.0)
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=180.0)
     model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
 
     messages = _build_bid_lots_prompt(terms_text)
     _log_prompt("bid_lots_extraction", messages)
+    print(f"[bid_lots_extraction] calling model={model} terms_chars={len(terms_text or '')}")
     try:
         response = _raw_create_chat_completion(
             client,
             model=model,
             messages=messages,
             response_format={"type": "json_schema", "json_schema": LOTS_WITH_PRICE_SCHEMA},
-            max_completion_tokens=8000,
+            max_completion_tokens=16000,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[bid_lots_extraction] openai_request_failed: {exc}")
@@ -256,10 +283,13 @@ def extract_bid_lots(terms_text: str) -> Dict[str, Any]:
     if not output_text:
         raise RuntimeError("Empty response from OpenAI")
 
+    _check_truncated(response, "bid_lots_extraction", output_text)
+
     try:
         return json.loads(output_text)
     except Exception as exc:  # noqa: BLE001
-        print(f"[bid_lots_extraction] json_parse_failed: {exc}; raw_output={output_text}")
+        print(f"[bid_lots_extraction] json_parse_failed: {exc}; raw_output_len={len(output_text)}")
+        print(f"[bid_lots_extraction] raw_output_tail={output_text[-500:]!r}")
         raise
 
 

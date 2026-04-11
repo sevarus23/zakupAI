@@ -84,6 +84,11 @@ class TaskQueue:
             session.refresh(task)
             return task
 
+    # If a task has been "in_progress" longer than this, we assume the
+    # worker died mid-call (or LLM hung past timeout) and reclaim it.
+    # OpenAI client timeout is 180s, so 5 minutes is generous.
+    STUCK_IN_PROGRESS_SECONDS = 300
+
     def enqueue_lots_extraction_task(self, purchase_id: int, terms_text: str) -> LLMTask:
         payload = {"terms_text": terms_text or ""}
         terms_len = len(terms_text or "")
@@ -92,6 +97,34 @@ class TaskQueue:
             f"worker_alive={self._thread.is_alive() if hasattr(self, '_thread') else 'N/A'}"
         )
         with Session(engine) as session:
+            # Reclaim stuck in_progress tasks for THIS purchase before
+            # checking for existing — otherwise enqueue returns the stuck
+            # task forever and the user can never retry.
+            now = datetime.utcnow()
+            stuck = session.exec(
+                select(LLMTask)
+                .where(
+                    LLMTask.purchase_id == purchase_id,
+                    LLMTask.task_type == "lots_extraction",
+                    LLMTask.status == "in_progress",
+                )
+            ).all()
+            for s in stuck:
+                age = (now - s.created_at).total_seconds() if s.created_at else 0
+                if age > self.STUCK_IN_PROGRESS_SECONDS:
+                    print(
+                        f"[lots_extraction] reclaiming stuck task id={s.id} age={age:.0f}s "
+                        f"-> failed"
+                    )
+                    s.status = "failed"
+                    s.output_text = json.dumps(
+                        {"error": f"Task abandoned after {age:.0f}s in_progress"},
+                        ensure_ascii=False,
+                    )
+                    session.add(s)
+            if stuck:
+                session.commit()
+
             existing = session.exec(
                 select(LLMTask)
                 .where(
