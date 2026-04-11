@@ -19,8 +19,12 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           envs: JWT_SECRET_KEY,OPENROUTER_API_KEY
           script: |
+            set -e
             cd /opt/zakupai
-            git pull origin main
+            echo "=== git pull ==="
+            git fetch origin main
+            git reset --hard origin/main
+            git log --oneline -3
             cp landing/index.html /var/www/landing/index.html
             cp landing/robots.txt /var/www/landing/robots.txt
             cp landing/sitemap.xml /var/www/landing/sitemap.xml
@@ -28,7 +32,13 @@ jobs:
             sed -i "s|^OPENROUTER_API_KEY=.*|OPENROUTER_API_KEY=${OPENROUTER_API_KEY}|" .env
             sed -i "s|^ENABLE_EMBEDDED_QUEUE=.*|ENABLE_EMBEDDED_QUEUE=true|" .env
             grep -q '^ENABLE_EMBEDDED_QUEUE=' .env 2>/dev/null || echo "ENABLE_EMBEDDED_QUEUE=true" >> .env
-            docker compose -f docker-compose.prod.yml build
-            docker compose -f docker-compose.prod.yml up -d
+            echo "=== build (no cache for frontend) ==="
+            docker compose -f docker-compose.prod.yml build --no-cache frontend
+            docker compose -f docker-compose.prod.yml build backend etl doc-to-md
+            echo "=== up with force-recreate ==="
+            docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps frontend
+            docker compose -f docker-compose.prod.yml up -d backend etl doc-to-md db
             docker compose -f docker-compose.prod.yml restart nginx
+            echo "=== verify deployed index.html ==="
+            docker compose -f docker-compose.prod.yml exec -T frontend grep -c 'btn-lots-diag' /usr/share/nginx/html/index.html || echo "DIAG BUTTON NOT FOUND IN DEPLOYED HTML"
             docker image prune -f

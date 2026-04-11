@@ -15,8 +15,25 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /opt/zakupai
+            echo "=== GIT STATE ==="
+            git log --oneline -5
+            git status
+            echo ""
             echo "=== CONTAINER STATUS ==="
             docker compose -f docker-compose.prod.yml ps
             echo ""
+            echo "=== FRONTEND IMAGE INSPECT ==="
+            docker compose -f docker-compose.prod.yml images frontend
+            echo ""
+            echo "=== INDEX.HTML INSIDE FRONTEND CONTAINER ==="
+            docker compose -f docker-compose.prod.yml exec -T frontend sh -c "ls -la /usr/share/nginx/html/index.html && grep -c 'btn-lots-diag' /usr/share/nginx/html/index.html && head -5 /usr/share/nginx/html/index.html"
+            echo ""
+            echo "=== INDEX.HTML ON DISK (host) ==="
+            ls -la frontend/index.html
+            grep -c 'btn-lots-diag' frontend/index.html || true
+            echo ""
             echo "=== BACKEND LOGS ==="
-            docker compose -f docker-compose.prod.yml logs backend --tail=50
+            docker compose -f docker-compose.prod.yml logs backend --tail=80
+            echo ""
+            echo "=== ETL LOGS ==="
+            docker compose -f docker-compose.prod.yml logs etl --tail=30
