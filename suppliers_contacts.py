@@ -2,7 +2,7 @@ import os
 import json
 from io import BytesIO
 from time import sleep
-from typing import Tuple, List, Dict, Any, Optional
+from typing import Callable, Tuple, List, Dict, Any, Optional
 from PIL import Image
 
 from difflib import SequenceMatcher
@@ -938,9 +938,14 @@ def collect_contacts_from_websites(
     technical_task_text: str,
     websites: List[Dict[str, Any]],
     tz_summary: Optional[Dict[str, Any]] = None,
+    progress_cb: Optional[Callable[[int, int, str], None]] = None,
 ) -> Dict[str, Any]:
     """
     Stage 2: crawl websites and collect emails/validation.
+
+    progress_cb is called after each site with (processed_count, total, current_website).
+    Used by the ETL worker to surface "Краулинг сайтов: 12/47" in the LLMTask note
+    so the frontend can show real progress instead of a single 15-minute spinner.
     """
     summary = tz_summary or summarize_tz_for_single_supplier(technical_task_text)
     tz_for_validation = build_validation_tz(summary)
@@ -948,6 +953,7 @@ def collect_contacts_from_websites(
     processed_contacts: List[Dict[str, Any]] = []
     search_output: List[Dict[str, Any]] = []
     seen: set[str] = set()
+    total_sites = len(websites)
 
     def _resolve_confidence(site_item: Dict[str, Any], is_relevant: bool) -> float:
         confidence = site_item.get("confidence")
@@ -956,9 +962,14 @@ def collect_contacts_from_websites(
         except (TypeError, ValueError):
             return 0.7 if is_relevant else 0.3
 
-    for site_item in tqdm(websites):
+    for site_idx, site_item in enumerate(tqdm(websites)):
         website = site_item.get("website") or site_item.get("link")
         if not website or website in seen:
+            if progress_cb:
+                try:
+                    progress_cb(site_idx + 1, total_sites, website or "")
+                except Exception:
+                    pass
             continue
 
         main_page_content = ""
@@ -1067,6 +1078,12 @@ def collect_contacts_from_websites(
             }
         )
         seen.add(website)
+
+        if progress_cb:
+            try:
+                progress_cb(site_idx + 1, total_sites, website)
+            except Exception:
+                pass
 
     return {
         "tech_task_excerpt": technical_task_text[:160],

@@ -584,6 +584,31 @@ def get_lots_diagnostics(
             return None
         return None
 
+    def _parse_crawl_progress(note: Optional[str]) -> Optional[dict]:
+        """Pull '12/47' style site count out of a note string written by the ETL worker.
+
+        Returns {processed, total, percent} or None if no crawl progress segment found.
+        """
+        if not note:
+            return None
+        import re
+        m = re.search(r"Краулинг сайтов:\s*(\d+)\s*/\s*(\d+)", note)
+        if not m:
+            # Final state: "Обход сайтов выполнен: N шт."
+            m_done = re.search(r"Обход сайтов выполнен:\s*(\d+)", note)
+            if m_done:
+                n = int(m_done.group(1))
+                return {"processed": n, "total": n, "percent": 100}
+            # Pre-crawl state: "Найдено сайтов для обхода: N"
+            m_found = re.search(r"Найдено сайтов для обхода:\s*(\d+)", note)
+            if m_found:
+                return {"processed": 0, "total": int(m_found.group(1)), "percent": 0}
+            return None
+        processed = int(m.group(1))
+        total = int(m.group(2))
+        percent = int(processed * 100 / total) if total > 0 else 0
+        return {"processed": processed, "total": total, "percent": percent}
+
     # Lots verdict
     latest_lots = serialized_lots[0] if serialized_lots else None
     failed_lots_count = sum(1 for t in serialized_lots if t["status"] == "failed")
@@ -610,32 +635,48 @@ def get_lots_diagnostics(
 
     # Supplier search verdict
     latest_supplier = serialized_suppliers[0] if serialized_suppliers else None
+    crawl_progress = None
     if latest_supplier and latest_supplier["status"] in ("queued", "in_progress"):
         sec_since = latest_supplier.get("seconds_since_update")
         note = _parse_note(latest_supplier) or "(нет данных о стадии)"
+        crawl_progress = _parse_crawl_progress(note)
         is_stuck = sec_since is not None and sec_since > 180
         if is_stuck:
             supplier_verdict = "stuck"
+            crawl_part = ""
+            if crawl_progress and crawl_progress["total"] > 0:
+                crawl_part = f", застряла на сайте {crawl_progress['processed']}/{crawl_progress['total']}"
             supplier_status_text = (
                 f"⚠ ВОЗМОЖНО ЗАВИСЛА (задача #{latest_supplier['id']}, "
-                f"нет обновлений {_fmt_age(sec_since)})"
+                f"нет обновлений {_fmt_age(sec_since)}{crawl_part})"
             )
             supplier_action = "Нажмите «Сбросить поиск поставщиков» и запустите заново"
         else:
             supplier_verdict = "running"
-            update_str = (
-                f", последнее обновление {_fmt_age(sec_since)} назад"
-                if sec_since is not None
-                else ""
-            )
-            supplier_status_text = (
-                f"🔄 Идёт поиск (задача #{latest_supplier['id']}, "
-                f"возраст {_fmt_age(latest_supplier['age_seconds'])}{update_str})"
-            )
-            supplier_action = (
-                f"Текущая стадия: {note}. "
-                f"Краулинг сайтов через Selenium может занимать 5-15 минут — это нормально."
-            )
+            if crawl_progress and crawl_progress["total"] > 0:
+                supplier_status_text = (
+                    f"🔄 Краулинг сайтов: {crawl_progress['processed']}/{crawl_progress['total']} "
+                    f"({crawl_progress['percent']}%) — задача #{latest_supplier['id']}, "
+                    f"идёт {_fmt_age(latest_supplier['age_seconds'])}"
+                )
+                supplier_action = (
+                    f"Текущая стадия: {note}. "
+                    f"Каждый сайт обходится 5-30 секунд (Selenium + LLM-валидация)."
+                )
+            else:
+                update_str = (
+                    f", последнее обновление {_fmt_age(sec_since)} назад"
+                    if sec_since is not None
+                    else ""
+                )
+                supplier_status_text = (
+                    f"🔄 Идёт поиск (задача #{latest_supplier['id']}, "
+                    f"возраст {_fmt_age(latest_supplier['age_seconds'])}{update_str})"
+                )
+                supplier_action = (
+                    f"Текущая стадия: {note}. "
+                    f"Краулинг сайтов через Selenium может занимать 5-15 минут — это нормально."
+                )
     elif suppliers_count > 0:
         supplier_verdict = "ok"
         supplier_status_text = f"✅ Найдено поставщиков: {suppliers_count}"
@@ -684,6 +725,7 @@ def get_lots_diagnostics(
             "suppliers_in_db": suppliers_count,
             "active_task_id": latest_supplier["id"] if latest_supplier and latest_supplier["status"] in ("queued", "in_progress") else None,
             "current_stage": _parse_note(latest_supplier) if latest_supplier else None,
+            "crawl_progress": crawl_progress,
             "action_hint": supplier_action,
         },
         "infrastructure": {

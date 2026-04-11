@@ -185,26 +185,59 @@ def _collect_combined_contacts(
         if item.get("website")
     ]
 
-    notes.append(f"Найдено сайтов для обхода: {len(websites_to_crawl)}")
+    total_sites = len(websites_to_crawl)
+    notes.append(f"Найдено сайтов для обхода: {total_sites}")
     _emit()
-    notes.pop()  # remove temp marker — final note will say "Обход сайтов выполнен"
+    notes.pop()  # remove temp marker
 
     # 2) Crawl merged websites and collect contacts.
     crawl_start = time.time()
     logger.info(
         "[supplier_search] starting crawl of %s websites",
-        len(websites_to_crawl),
+        total_sites,
     )
+
+    # Per-site progress: replace the trailing crawl note in-place after each site
+    # so the frontend can show "Краулинг сайтов: 12/47" instead of a single
+    # spinner that lasts 15 minutes. We use a closure to reach _emit + notes.
+    def _crawl_progress(processed: int, total: int, current_url: str) -> None:
+        # Remove any existing crawl-progress note we added previously, then push fresh.
+        while notes and notes[-1].startswith("Краулинг сайтов:"):
+            notes.pop()
+        # Show host only — full URLs make the note unreadable
+        host = current_url
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(current_url if "://" in current_url else "http://" + current_url)
+            host = parsed.netloc or current_url
+        except Exception:
+            pass
+        elapsed_s = int(time.time() - crawl_start)
+        eta_str = ""
+        if processed > 0 and processed < total:
+            avg = elapsed_s / processed
+            remaining = int(avg * (total - processed))
+            eta_str = f", осталось ~{remaining // 60}м {remaining % 60}с"
+        notes.append(
+            f"Краулинг сайтов: {processed}/{total} (текущий: {host[:60]}{eta_str})"
+        )
+        _emit()
+
     try:
         crawled = collect_contacts_from_websites(
             technical_task_text=terms_text,
             websites=websites_to_crawl,
             tz_summary=yandex_result.get("tz_summary"),
+            progress_cb=_crawl_progress,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Website crawl failed")
         notes.append(f"Обход сайтов завершился с ошибкой: {exc}")
         crawled = {"processed_contacts": [], "search_output": []}
+
+    # Strip any leftover crawl-progress note before writing the final state
+    while notes and notes[-1].startswith("Краулинг сайтов:"):
+        notes.pop()
     crawl_elapsed = int(time.time() - crawl_start)
     logger.info("[supplier_search] crawl finished in %ss", crawl_elapsed)
     merged_contacts = merge_contacts(crawled.get("processed_contacts") or [], crawled.get("search_output") or [])

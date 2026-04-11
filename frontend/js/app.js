@@ -1692,6 +1692,15 @@
       lines.push('▼ ПОИСК ПОСТАВЩИКОВ');
       lines.push('  ' + s.supplier_search.status);
       lines.push('  Поставщиков в БД: ' + s.supplier_search.suppliers_in_db);
+      // ASCII progress bar for crawl stage
+      var cp = s.supplier_search.crawl_progress;
+      if (cp && cp.total > 0) {
+        var barWidth = 30;
+        var filled = Math.round(barWidth * (cp.processed / cp.total));
+        var bar = '';
+        for (var i = 0; i < barWidth; i++) bar += i < filled ? '█' : '░';
+        lines.push('  Краулинг: [' + bar + '] ' + cp.processed + '/' + cp.total + ' (' + cp.percent + '%)');
+      }
       if (s.supplier_search.current_stage) {
         lines.push('  Текущая стадия: ' + s.supplier_search.current_stage);
       }
