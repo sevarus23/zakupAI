@@ -168,20 +168,13 @@ def _extract_product_id(gisp_url: Optional[str]) -> Optional[str]:
 
 
 async def _fetch_pp719_records(registry_number: str) -> List[Dict[str, Any]]:
-    """POST to the PP-719v2 grid endpoint and return raw item dicts.
-
-    NOTE: gisp.gov.ru resolves to both A and AAAA records. The first IPv6
-    smoke test on the VPS hung indefinitely on TCP connect, even though IPv4
-    works fine — the docker default bridge network on the host has no IPv6
-    egress. Force IPv4 with a custom transport so this can never bite us.
-    """
+    """POST to the PP-719v2 grid endpoint and return raw item dicts."""
     payload = {
         "opt": {
             "filter": ["product_reg_number_2023", "contains", registry_number]
         }
     }
-    transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")  # IPv4 only
-    async with httpx.AsyncClient(timeout=PP719_HTTP_TIMEOUT, transport=transport) as client:
+    async with httpx.AsyncClient(timeout=PP719_HTTP_TIMEOUT) as client:
         try:
             resp = await client.post(PP719_API_URL, json=payload, headers=_REGISTRY_HEADERS)
         except httpx.RequestError as exc:
