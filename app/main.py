@@ -490,9 +490,18 @@ def get_lots_diagnostics(
     session=Depends(get_session),
     current_user: User = Depends(auth.get_current_user),
 ) -> dict:
-    """Return full state of lots extraction for debugging from the UI."""
+    """Return full state of lots extraction for debugging from the UI.
+
+    Admin-only — diagnostics expose internal state (worker liveness, raw
+    LLMTask payloads, OpenAI config). Defence in depth: the UI hides the
+    button for non-admins but the endpoint must reject them too.
+    """
+    if not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+
     purchase = session.get(Purchase, purchase_id)
-    if not purchase or purchase.user_id != current_user.id:
+    # Admins can inspect any purchase, not only their own.
+    if not purchase:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase not found")
 
     lots_tasks = session.exec(

@@ -236,6 +236,7 @@
     clearPolling();
     lastLotsStatus = null;
     lastLotsError = null;
+    lotsExpanded = false;
     currentLots = [];
     // Reset DOM that can leak across purchases
     var searchStatusEl = $('search-status');
@@ -409,6 +410,7 @@
 
   var lastLotsStatus = null;
   var lastLotsError = null;
+  var lotsExpanded = false;
 
   function logDiag(label, payload) {
     try {
@@ -523,8 +525,14 @@
       return;
     }
     if (uploadCard) uploadCard.style.display = 'none';
+
+    // Collapse long lists to first 10 with "show more" toggle.
+    var COLLAPSE_THRESHOLD = 10;
+    var shouldCollapse = currentLots.length > COLLAPSE_THRESHOLD && !lotsExpanded;
+    var visibleCount = shouldCollapse ? COLLAPSE_THRESHOLD : currentLots.length;
+
     var html = '';
-    for (var i = 0; i < currentLots.length; i++) {
+    for (var i = 0; i < visibleCount; i++) {
       var lot = currentLots[i];
       var paramCount = lot.parameters ? lot.parameters.length : 0;
       html += '<div class="lot-item" data-lot-index="' + i + '">' +
@@ -534,8 +542,24 @@
         '<div class="lot-meta">' + paramCount + ' параметр' + pluralParams(paramCount) + '</div>' +
         '</div></div>';
     }
+
+    // Toggle row at the bottom
+    if (currentLots.length > COLLAPSE_THRESHOLD) {
+      if (shouldCollapse) {
+        var hidden = currentLots.length - COLLAPSE_THRESHOLD;
+        html += '<div class="lot-toggle" id="lot-toggle-row" style="text-align:center;padding:10px;cursor:pointer;color:var(--accent);font-weight:500;border-top:1px solid var(--border);margin-top:4px">' +
+          'Показать ещё ' + hidden + ' ' + pluralLots(hidden) + ' ▼' +
+          '</div>';
+      } else {
+        html += '<div class="lot-toggle" id="lot-toggle-row" style="text-align:center;padding:10px;cursor:pointer;color:var(--accent);font-weight:500;border-top:1px solid var(--border);margin-top:4px">' +
+          'Свернуть ▲' +
+          '</div>';
+      }
+    }
+
     container.innerHTML = html;
-    // Click to show detail
+
+    // Click on lot row → detail modal
     var items = container.querySelectorAll('.lot-item');
     for (var j = 0; j < items.length; j++) {
       items[j].addEventListener('click', function () {
@@ -543,6 +567,23 @@
         showLotDetail(currentLots[idx]);
       });
     }
+
+    // Click on toggle row → expand/collapse + re-render
+    var toggleRow = $('lot-toggle-row');
+    if (toggleRow) {
+      toggleRow.addEventListener('click', function () {
+        lotsExpanded = !lotsExpanded;
+        renderLots();
+      });
+    }
+  }
+
+  function pluralLots(n) {
+    var mod10 = n % 10;
+    var mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'лот';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'лота';
+    return 'лотов';
   }
 
   function showLotDetail(lot) {
@@ -680,6 +721,32 @@
     searchTimerInterval = null;
   }
 
+  function _parseCrawlProgressFromNote(note) {
+    if (!note) return null;
+    // "Краулинг сайтов: 12/47 (текущий: example.com, осталось ~5м 30с)"
+    var m = note.match(/Краулинг сайтов:\s*(\d+)\s*\/\s*(\d+)(?:\s*\(текущий:\s*([^,)]+?)(?:,\s*осталось\s*~?([^)]+))?\))?/);
+    if (m) {
+      return {
+        processed: parseInt(m[1], 10),
+        total: parseInt(m[2], 10),
+        current: m[3] ? m[3].trim() : null,
+        eta: m[4] ? m[4].trim() : null,
+      };
+    }
+    // Pre-crawl: "Найдено сайтов для обхода: 47"
+    var m2 = note.match(/Найдено сайтов для обхода:\s*(\d+)/);
+    if (m2) {
+      return { processed: 0, total: parseInt(m2[1], 10), current: null, eta: null };
+    }
+    // Done: "Обход сайтов выполнен: 47 шт."
+    var m3 = note.match(/Обход сайтов выполнен:\s*(\d+)/);
+    if (m3) {
+      var n = parseInt(m3[1], 10);
+      return { processed: n, total: n, current: null, eta: null };
+    }
+    return null;
+  }
+
   function renderSearchStatus(state) {
     var statusEl = $('search-status');
     statusEl.classList.remove('hidden');
@@ -688,18 +755,49 @@
     if (state.status === 'queued' || state.status === 'in_progress') {
       startSearchTimer();
       var note = state.note || '';
+      var crawlDone = note.indexOf('Обход сайтов выполнен') >= 0;
+      var crawlInProgress = note.indexOf('Краулинг сайтов:') >= 0;
       var steps = [];
       steps.push({ label: 'Генерация поисковых запросов', done: !!(state.queries && state.queries.length) });
       steps.push({ label: 'Поиск через Яндекс и Perplexity', done: note.indexOf('Yandex поиск обработан') >= 0 || note.indexOf('Perplexity обработан') >= 0 });
-      steps.push({ label: 'Обход сайтов и сбор контактов', done: note.indexOf('Обход сайтов выполнен') >= 0 });
+      steps.push({ label: 'Обход сайтов и сбор контактов', done: crawlDone, inProgress: crawlInProgress && !crawlDone });
+
+      var crawl = _parseCrawlProgressFromNote(note);
 
       var stepsHtml = '<div style="margin-top:8px">';
       for (var i = 0; i < steps.length; i++) {
-        var icon = steps[i].done ? '<span style="color:var(--success)">&#10003;</span>' : '<span class="spinner" style="width:12px;height:12px;border-width:1.5px;display:inline-block;vertical-align:middle"></span>';
+        var icon = steps[i].done
+          ? '<span style="color:var(--success)">&#10003;</span>'
+          : '<span class="spinner" style="width:12px;height:12px;border-width:1.5px;display:inline-block;vertical-align:middle"></span>';
         var textStyle = steps[i].done ? 'color:var(--text-secondary)' : 'font-weight:500';
-        stepsHtml += '<div style="font-size:13px;margin-bottom:4px;' + textStyle + '">' + icon + ' ' + steps[i].label + '</div>';
+        stepsHtml += '<div style="font-size:13px;margin-bottom:4px;' + textStyle + '">' + icon + ' ' + steps[i].label;
+        // Inline crawl progress on the third step
+        if (i === 2 && steps[i].inProgress && crawl && crawl.total > 0) {
+          var pct = Math.round((crawl.processed / crawl.total) * 100);
+          stepsHtml += '<span style="margin-left:8px;font-weight:600;color:var(--accent)">' +
+            crawl.processed + ' / ' + crawl.total + ' (' + pct + '%)</span>';
+        }
+        stepsHtml += '</div>';
       }
       stepsHtml += '</div>';
+
+      // Visual progress bar + current site, only when crawl is active
+      var crawlBlock = '';
+      if (crawl && crawl.total > 0 && !crawlDone) {
+        var pct2 = Math.round((crawl.processed / crawl.total) * 100);
+        var currentLine = '';
+        if (crawl.current) {
+          currentLine = '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Текущий сайт: <span style="color:var(--text-primary);font-weight:500">' + escapeHtml(crawl.current) + '</span>' +
+            (crawl.eta ? ' · осталось ~' + escapeHtml(crawl.eta) : '') + '</div>';
+        }
+        crawlBlock =
+          '<div style="margin-top:10px">' +
+            '<div style="height:6px;background:var(--bg);border-radius:4px;overflow:hidden;border:1px solid var(--border)">' +
+              '<div style="height:100%;width:' + pct2 + '%;background:linear-gradient(90deg,var(--accent),var(--success));transition:width .3s"></div>' +
+            '</div>' +
+            currentLine +
+          '</div>';
+      }
 
       statusEl.className = 'search-status';
       statusEl.style.flexDirection = 'column';
@@ -710,7 +808,8 @@
         '<div><strong>Поиск идёт...</strong></div>' +
         '<div style="margin-left:auto;font-size:13px;color:var(--text-secondary)" id="search-elapsed">' + formatElapsed(Date.now() - (searchStartTime || Date.now())) + '</div>' +
         '</div>' +
-        stepsHtml;
+        stepsHtml +
+        crawlBlock;
     } else if (state.status === 'completed') {
       stopSearchTimer();
       var elapsed = searchStartTime ? formatElapsed(Date.now() - searchStartTime) : '';
@@ -1787,7 +1886,14 @@
   }
 
   function initLotsDiagnostics() {
+    // Diagnostics is admin-only — hide the button entirely for regular users.
     var btn = $('btn-lots-diag');
+    var user = (typeof Auth !== 'undefined' && Auth.getUser) ? Auth.getUser() : null;
+    var isAdmin = !!(user && user.is_admin);
+    if (btn && !isAdmin) {
+      btn.style.display = 'none';
+      return; // no point wiring listeners on a hidden button
+    }
     if (btn) {
       btn.addEventListener('click', function () {
         openModal('modal-lots-diag');
