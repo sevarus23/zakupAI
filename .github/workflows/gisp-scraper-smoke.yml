@@ -72,6 +72,51 @@ jobs:
             docker network ls | grep zakupai || true
 
             echo ""
+            echo "--- httpx vs urllib direct ---"
+            docker compose -f docker-compose.prod.yml exec -T gisp-scraper python -c "
+            import urllib.request, json, sys, time
+            print('attempt 1: urllib GET https://gisp.gov.ru/')
+            t = time.monotonic()
+            try:
+                r = urllib.request.urlopen('https://gisp.gov.ru/', timeout=15)
+                print(f'  ok HTTP {r.status} ({time.monotonic()-t:.1f}s)')
+            except Exception as e:
+                print(f'  FAIL {type(e).__name__}: {e} ({time.monotonic()-t:.1f}s)')
+
+            import httpx
+            print('attempt 2: httpx GET https://gisp.gov.ru/')
+            t = time.monotonic()
+            try:
+                with httpx.Client(timeout=15.0) as c:
+                    r = c.get('https://gisp.gov.ru/')
+                    print(f'  ok HTTP {r.status_code} ({time.monotonic()-t:.1f}s)')
+            except Exception as e:
+                print(f'  FAIL {type(e).__name__}: {e} ({time.monotonic()-t:.1f}s)')
+
+            print('attempt 3: httpx POST PP719 endpoint')
+            t = time.monotonic()
+            try:
+                with httpx.Client(timeout=15.0) as c:
+                    r = c.post(
+                        'https://gisp.gov.ru/pp719v2/pub/prod/b/',
+                        json={'opt': {'filter': ['product_reg_number_2023', 'contains', '10085920']}},
+                        headers={
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json, text/plain, */*',
+                            'Origin': 'https://gisp.gov.ru',
+                            'Referer': 'https://gisp.gov.ru/pp719v2/pub/prod/',
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        },
+                    )
+                    print(f'  ok HTTP {r.status_code} body_len={len(r.content)} ({time.monotonic()-t:.1f}s)')
+                    if r.status_code == 200:
+                        d = r.json()
+                        print(f'  items: {len(d.get(\"items\", []))}')
+            except Exception as e:
+                print(f'  FAIL {type(e).__name__}: {e!r} ({time.monotonic()-t:.1f}s)')
+            " 2>&1
+
+            echo ""
             echo "=== /pp719/$REG ==="
             docker compose -f docker-compose.prod.yml exec -T gisp-scraper python -c "
             import urllib.request, json
