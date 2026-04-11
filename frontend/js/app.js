@@ -875,14 +875,9 @@
     }
     exportBtn.classList.remove('hidden');
 
-    // Collapse long lists to first 3 with "show more" toggle (mirrors lots).
-    var SUPPLIERS_COLLAPSE_THRESHOLD = 3;
-    var shouldCollapse = currentSuppliers.length > SUPPLIERS_COLLAPSE_THRESHOLD && !suppliersExpanded;
-    var visibleCount = shouldCollapse ? SUPPLIERS_COLLAPSE_THRESHOLD : currentSuppliers.length;
-
     var html = '<table class="suppliers-table"><thead><tr>' +
       '<th>Поставщик</th><th>Сайт</th><th>Источник</th><th style="width:35%">Причина</th><th>Контакты</th></tr></thead><tbody>';
-    for (var i = 0; i < visibleCount; i++) {
+    for (var i = 0; i < currentSuppliers.length; i++) {
       var s = currentSuppliers[i];
       var website = s.website_url ? '<a href="' + escapeHtml(s.website_url) + '" target="_blank" rel="noopener" style="color:var(--accent)">' + escapeHtml(s.website_url) + '</a>' : '—';
       var sourceClass = s.source === 'manual' ? 'source-manual' : 'source-ai';
@@ -896,33 +891,11 @@
         '</tr>';
     }
     html += '</tbody></table>';
-
-    if (currentSuppliers.length > SUPPLIERS_COLLAPSE_THRESHOLD) {
-      if (shouldCollapse) {
-        var hidden = currentSuppliers.length - SUPPLIERS_COLLAPSE_THRESHOLD;
-        html += '<div class="lot-toggle" id="suppliers-toggle-row" style="text-align:center;padding:10px;cursor:pointer;color:var(--accent);font-weight:500;border-top:1px solid var(--border)">' +
-          'Показать ещё ' + hidden + ' ' + pluralSuppliers(hidden) + ' ▼' +
-          '</div>';
-      } else {
-        html += '<div class="lot-toggle" id="suppliers-toggle-row" style="text-align:center;padding:10px;cursor:pointer;color:var(--accent);font-weight:500;border-top:1px solid var(--border)">' +
-          'Свернуть ▲' +
-          '</div>';
-      }
-    }
-
     container.innerHTML = html;
 
-    // Auto-load contacts for visible suppliers (no "Показать" button anymore).
-    for (var k = 0; k < visibleCount; k++) {
+    // Auto-load contacts for all rows — they're the whole point of the page.
+    for (var k = 0; k < currentSuppliers.length; k++) {
       loadContacts(currentSuppliers[k].id);
-    }
-
-    var toggleRow = $('suppliers-toggle-row');
-    if (toggleRow) {
-      toggleRow.addEventListener('click', function () {
-        suppliersExpanded = !suppliersExpanded;
-        renderSuppliers();
-      });
     }
   }
 
@@ -1135,8 +1108,14 @@
       container.innerHTML = '<div class="empty-state" style="padding:20px;font-size:13px;">Сначала найдите поставщиков во вкладке «Поиск»</div>';
       return;
     }
+
+    // Collapse to first 3 since M2 is still in development — full list is noise.
+    var CORRESPONDENCE_COLLAPSE_THRESHOLD = 3;
+    var shouldCollapse = currentSuppliers.length > CORRESPONDENCE_COLLAPSE_THRESHOLD && !suppliersExpanded;
+    var visibleCount = shouldCollapse ? CORRESPONDENCE_COLLAPSE_THRESHOLD : currentSuppliers.length;
+
     var html = '';
-    for (var i = 0; i < currentSuppliers.length; i++) {
+    for (var i = 0; i < visibleCount; i++) {
       var s = currentSuppliers[i];
       var hasBid = currentBids.some(function (b) { return b.supplier_id === s.id; });
       var pillClass = hasBid ? 'pill-success' : 'pill-draft';
@@ -1146,7 +1125,29 @@
         '<div class="supplier-card-status"><span class="status-pill ' + pillClass + '">' + pillText + '</span></div>' +
         '</div>';
     }
+
+    if (currentSuppliers.length > CORRESPONDENCE_COLLAPSE_THRESHOLD) {
+      if (shouldCollapse) {
+        var hidden = currentSuppliers.length - CORRESPONDENCE_COLLAPSE_THRESHOLD;
+        html += '<div class="lot-toggle" id="correspondence-toggle-row" style="text-align:center;padding:10px;cursor:pointer;color:var(--accent);font-weight:500;border-top:1px solid var(--border);margin-top:4px">' +
+          'Показать ещё ' + hidden + ' ' + pluralSuppliers(hidden) + ' ▼' +
+          '</div>';
+      } else {
+        html += '<div class="lot-toggle" id="correspondence-toggle-row" style="text-align:center;padding:10px;cursor:pointer;color:var(--accent);font-weight:500;border-top:1px solid var(--border);margin-top:4px">' +
+          'Свернуть ▲' +
+          '</div>';
+      }
+    }
+
     container.innerHTML = html;
+
+    var toggleRow = $('correspondence-toggle-row');
+    if (toggleRow) {
+      toggleRow.addEventListener('click', function () {
+        suppliersExpanded = !suppliersExpanded;
+        renderCorrespondenceSuppliers();
+      });
+    }
   }
 
   function updateComparisonZones() {
