@@ -5,7 +5,52 @@ on:
     branches: [main]
 
 jobs:
+  # ─────────────────────────────────────────────────────────────────────
+  # Stage 1: cheap syntax validation. Runs on every push and blocks
+  # deploy if anything obvious is broken. Catches the class of bugs
+  # where a typo would otherwise reach production.
+  # ─────────────────────────────────────────────────────────────────────
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Python syntax check
+        run: |
+          set -e
+          # py_compile is purely syntactic — no imports executed,
+          # no dependencies needed.
+          find app etl -name "*.py" -print0 | xargs -0 -n1 python -m py_compile
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: JavaScript syntax check
+        run: |
+          set -e
+          for f in $(find frontend/js -name "*.js"); do
+            echo "checking $f"
+            node --check "$f"
+          done
+
+      - name: HTML smoke (must contain expected entry points)
+        run: |
+          set -e
+          test -f frontend/index.html
+          grep -q '<script src="js/app.js' frontend/index.html
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Stage 2: deploy. Only runs if validate passed.
+  # ─────────────────────────────────────────────────────────────────────
   deploy:
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
@@ -13,32 +58,99 @@ jobs:
         env:
           JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GIT_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: JWT_SECRET_KEY,OPENROUTER_API_KEY
+          envs: JWT_SECRET_KEY,OPENROUTER_API_KEY,GIT_SHA
           script: |
-            set -e
+            set -euo pipefail
             cd /opt/zakupai
-            echo "=== git pull ==="
+
+            echo "=== sync to target SHA: ${GIT_SHA} ==="
             git fetch origin main
-            git reset --hard origin/main
+            git reset --hard "${GIT_SHA}"
             git log --oneline -3
+
+            echo "=== inject build marker ==="
+            BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            # frontend/build.txt is gitignored; gets COPYed into the
+            # image by the existing COPY . instruction in frontend/Dockerfile.
+            # The deploy verifier curls /build.txt to confirm the new
+            # frontend image is actually serving the live site.
+            echo "${GIT_SHA} ${BUILD_TIME}" > frontend/build.txt
+            cat frontend/build.txt
+
+            echo "=== landing pages ==="
             cp landing/index.html /var/www/landing/index.html
             cp landing/robots.txt /var/www/landing/robots.txt
             cp landing/sitemap.xml /var/www/landing/sitemap.xml
+
+            echo "=== env ==="
             grep -q '^JWT_SECRET_KEY=' .env 2>/dev/null || echo "JWT_SECRET_KEY=${JWT_SECRET_KEY}" >> .env
             sed -i "s|^OPENROUTER_API_KEY=.*|OPENROUTER_API_KEY=${OPENROUTER_API_KEY}|" .env
             sed -i "s|^ENABLE_EMBEDDED_QUEUE=.*|ENABLE_EMBEDDED_QUEUE=true|" .env
             grep -q '^ENABLE_EMBEDDED_QUEUE=' .env 2>/dev/null || echo "ENABLE_EMBEDDED_QUEUE=true" >> .env
-            echo "=== build (no cache for frontend) ==="
+
+            echo "=== build ==="
+            # Frontend rebuild is mandatory and must NOT use cache —
+            # the COPY . layer is the only meaningful step and Docker
+            # has historically returned a cached layer here. The build
+            # itself takes ~2 seconds, so the cost is zero.
             docker compose -f docker-compose.prod.yml build --no-cache frontend
             docker compose -f docker-compose.prod.yml build backend etl doc-to-md
-            echo "=== up with force-recreate ==="
+
+            echo "=== up ==="
+            # --force-recreate makes compose tear down the existing
+            # container instead of relying on image-digest comparison
+            # (which has bitten us — see incident 2026-04-11).
             docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps frontend
             docker compose -f docker-compose.prod.yml up -d backend etl doc-to-md db
             docker compose -f docker-compose.prod.yml restart nginx
-            echo "=== verify deployed index.html ==="
-            docker compose -f docker-compose.prod.yml exec -T frontend grep -c 'btn-lots-diag' /usr/share/nginx/html/index.html || echo "DIAG BUTTON NOT FOUND IN DEPLOYED HTML"
+
+            echo "=== local sanity (build.txt inside container) ==="
+            docker compose -f docker-compose.prod.yml exec -T frontend cat /usr/share/nginx/html/build.txt
+
             docker image prune -f
+
+      - name: Verify live frontend serves the new SHA
+        run: |
+          set -e
+          SHA="${{ github.sha }}"
+          echo "Expecting https://app.zakupai.tech/build.txt to contain ${SHA}"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            sleep 3
+            # Cache-buster query string + no-cache header to defeat any
+            # intermediate caching layer.
+            URL="https://app.zakupai.tech/build.txt?cb=$(date +%s)-$i"
+            LIVE=$(curl -fsS -H "Cache-Control: no-cache" -H "Pragma: no-cache" "$URL" 2>/dev/null || echo "")
+            if echo "$LIVE" | grep -q "$SHA"; then
+              echo "✓ Frontend deploy verified at attempt $i"
+              echo "  build.txt: $LIVE"
+              exit 0
+            fi
+            echo "  attempt $i/10: got '$LIVE'"
+          done
+          echo ""
+          echo "✗ DEPLOY VERIFICATION FAILED"
+          echo "  Live frontend does not serve SHA ${SHA}."
+          echo "  This means docker compose build/up did not actually update the frontend image."
+          echo "  Check the workflow logs above for 'Step .. CACHED' lines or compose errors."
+          exit 1
+
+      - name: Verify backend is healthy
+        run: |
+          set -e
+          echo "Checking https://app.zakupai.tech/api/health"
+          for i in 1 2 3 4 5; do
+            if RESP=$(curl -fsS https://app.zakupai.tech/api/health 2>&1); then
+              echo "✓ Backend healthy: $RESP"
+              exit 0
+            fi
+            echo "  attempt $i/5 failed, retrying..."
+            sleep 3
+          done
+          echo "✗ Backend health check failed"
+          curl -v https://app.zakupai.tech/api/health || true
+          exit 1
