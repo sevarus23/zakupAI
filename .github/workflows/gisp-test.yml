@@ -1,0 +1,104 @@
+name: GISP scraper smoke-test
+
+on:
+  workflow_dispatch:
+    inputs:
+      registry_number:
+        description: 'Реестровый номер ПП-719v2 для проверки'
+        required: true
+        default: '10085920'
+
+jobs:
+  gisp-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run GISP API smoke-test on VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            REG="${{ github.event.inputs.registry_number }}"
+            echo "=== Registry number: $REG ==="
+            echo ""
+            echo "=== Network sanity ==="
+            getent hosts gisp.gov.ru || echo "DNS resolve FAILED"
+            curl -sS -o /dev/null -w "GET https://gisp.gov.ru/ -> HTTP %{http_code} | connect=%{time_connect}s | total=%{time_total}s\n" --max-time 15 https://gisp.gov.ru/ || echo "curl failed"
+            echo ""
+            echo "=== Direct POST to PP719v2 API ==="
+            cat > /tmp/gisp_payload.json <<EOF
+            {"opt":{"filter":["product_reg_number_2023","contains","$REG"]}}
+            EOF
+            curl -sS -X POST "https://gisp.gov.ru/pp719v2/pub/prod/b/" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json, text/plain, */*" \
+              -H "Origin: https://gisp.gov.ru" \
+              -H "Referer: https://gisp.gov.ru/pp719v2/pub/prod/" \
+              -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36" \
+              -d @/tmp/gisp_payload.json \
+              --max-time 30 \
+              -o /tmp/gisp_response.json \
+              -w "HTTP %{http_code} | bytes=%{size_download} | total=%{time_total}s\n"
+            echo ""
+            echo "=== Response head (first 4KB) ==="
+            head -c 4096 /tmp/gisp_response.json || true
+            echo ""
+            echo ""
+            echo "=== Parsed summary (python3) ==="
+            python3 - <<'PY'
+            import json, sys
+            try:
+                data = json.load(open("/tmp/gisp_response.json"))
+            except Exception as e:
+                print(f"[!] JSON parse failed: {e}")
+                sys.exit(0)
+            print(f"top-level keys: {list(data.keys()) if isinstance(data, dict) else type(data).__name__}")
+            items = data.get("items") if isinstance(data, dict) else None
+            if items is None:
+                print("no 'items' field — full response:")
+                print(json.dumps(data, ensure_ascii=False, indent=2)[:3000])
+                sys.exit(0)
+            print(f"items count: {len(items)}")
+            for i, it in enumerate(items[:5]):
+                print(f"\n--- item[{i}] ---")
+                print(f"  product_reg_number_2023 = {it.get('product_reg_number_2023')}")
+                print(f"  product_name            = {it.get('product_name')}")
+                print(f"  org_name                = {it.get('org_name')}")
+                print(f"  org_inn                 = {it.get('org_inn')}")
+                print(f"  product_okpd2           = {it.get('product_okpd2')}")
+                print(f"  product_tnved           = {it.get('product_tnved')}")
+                print(f"  product_gisp_url        = {it.get('product_gisp_url')}")
+            PY
+            echo ""
+            echo "=== Try fetching product_gisp_url (if any) ==="
+            python3 - <<'PY'
+            import json, subprocess
+            try:
+                data = json.load(open("/tmp/gisp_response.json"))
+                items = data.get("items") or []
+                url = items[0].get("product_gisp_url") if items else None
+            except Exception:
+                url = None
+            if not url:
+                print("no product_gisp_url to fetch")
+            else:
+                print(f"URL: {url}")
+                with open("/tmp/url.txt", "w") as f:
+                    f.write(url)
+            PY
+            if [ -f /tmp/url.txt ]; then
+              URL=$(cat /tmp/url.txt)
+              curl -sS -L "$URL" \
+                -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36" \
+                --max-time 30 \
+                -o /tmp/gisp_card.html \
+                -w "HTTP %{http_code} | bytes=%{size_download}\n"
+              echo "--- card head (first 2KB) ---"
+              head -c 2048 /tmp/gisp_card.html || true
+              echo ""
+              echo "--- looking for characteristics markers ---"
+              grep -o "product-characteristic[^\"']*" /tmp/gisp_card.html | sort -u | head -20 || echo "  (none found in initial HTML — likely SPA)"
+            fi
+            rm -f /tmp/gisp_payload.json /tmp/gisp_response.json /tmp/gisp_card.html /tmp/url.txt
