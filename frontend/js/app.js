@@ -1668,6 +1668,48 @@
     }
   }
 
+  function _renderSummaryBlock(s) {
+    if (!s) return '';
+    var lines = [];
+    lines.push('╔══════════════════════════════════════════════════════════════════╗');
+    lines.push('║                    СВОДКА ПО ПОДСИСТЕМАМ                         ║');
+    lines.push('╚══════════════════════════════════════════════════════════════════╝');
+    lines.push('');
+
+    if (s.lots) {
+      lines.push('▼ РАСПОЗНАВАНИЕ ЛОТОВ');
+      lines.push('  ' + s.lots.status);
+      lines.push('  Лотов в БД: ' + s.lots.lots_in_db +
+        '  |  completed: ' + (s.lots.completed_count || 0) +
+        '  |  failed: ' + (s.lots.failed_count || 0));
+      if (s.lots.action_hint) {
+        lines.push('  → ' + s.lots.action_hint);
+      }
+      lines.push('');
+    }
+
+    if (s.supplier_search) {
+      lines.push('▼ ПОИСК ПОСТАВЩИКОВ');
+      lines.push('  ' + s.supplier_search.status);
+      lines.push('  Поставщиков в БД: ' + s.supplier_search.suppliers_in_db);
+      if (s.supplier_search.current_stage) {
+        lines.push('  Текущая стадия: ' + s.supplier_search.current_stage);
+      }
+      if (s.supplier_search.action_hint) {
+        lines.push('  → ' + s.supplier_search.action_hint);
+      }
+      lines.push('');
+    }
+
+    if (s.infrastructure) {
+      lines.push('▼ ИНФРАСТРУКТУРА');
+      lines.push('  ' + s.infrastructure.status);
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  }
+
   async function loadLotsDiagnostics() {
     var contentEl = $('diag-content');
     if (!currentPurchase) {
@@ -1683,35 +1725,27 @@
       var supplierTasks = data.supplier_tasks || [];
       var otherTasks = data.other_tasks || [];
 
-      var summary = [
-        '=== СВОДКА ===',
+      // ── Top: human-readable summary ─────────────────────────
+      var topSummary = _renderSummaryBlock(data.summary);
+
+      var contextBlock = [
+        '─────────────────────── КОНТЕКСТ ───────────────────────',
         'Закупка ID:           ' + data.purchase_id,
         'Статус закупки:       ' + data.purchase_status,
         'ТЗ загружено:         ' + (data.has_terms_text ? 'да (' + data.terms_text_length + ' символов)' : 'НЕТ'),
-        'Лотов в БД:           ' + data.lots_in_db,
-        'Поставщиков в БД:     ' + (typeof data.suppliers_in_db === 'number' ? data.suppliers_in_db : '(нет данных)'),
+        'OpenAI model:         ' + data.openai_model,
         '',
-        '=== ВОРКЕР ===',
-        'ENABLE_EMBEDDED_QUEUE: ' + data.embedded_queue_enabled,
-        'Worker thread alive:  ' + data.worker_thread_alive,
-        '',
-        '=== LLM ===',
-        'OPENAI_API_KEY:       ' + (data.openai_api_key_set ? 'установлен' : 'НЕ УСТАНОВЛЕН'),
-        'OPENAI_BASE_URL:      ' + (data.openai_base_url || '(не задан)'),
-        'OPENAI_MODEL:         ' + data.openai_model,
-        '',
-        '=== ПРЕВЬЮ ТЗ ===',
-        data.terms_text_preview || '(пусто)',
+        'Превью ТЗ: ' + (data.terms_text_preview || '(пусто)').slice(0, 200) + '...',
       ].join('\n');
 
-      var lotsSection = '\n\n=== РАСПОЗНАВАНИЕ ЛОТОВ (' + lotsTasks.length + ' задач) ===';
+      var lotsSection = '\n\n─────────────────────── РАСПОЗНАВАНИЕ ЛОТОВ (' + lotsTasks.length + ' задач) ───────────────────────';
       if (lotsTasks.length) {
         for (var i = 0; i < lotsTasks.length; i++) lotsSection += _formatTaskBlock(lotsTasks[i]);
       } else {
         lotsSection += '\n(задач нет — extraction не запускалось)\n';
       }
 
-      var supplierSection = '\n\n=== ПОИСК ПОСТАВЩИКОВ (' + supplierTasks.length + ' задач) ===';
+      var supplierSection = '\n\n─────────────────────── ПОИСК ПОСТАВЩИКОВ (' + supplierTasks.length + ' задач) ───────────────────────';
       if (supplierTasks.length) {
         for (var j = 0; j < supplierTasks.length; j++) supplierSection += _formatTaskBlock(supplierTasks[j]);
       } else {
@@ -1720,12 +1754,12 @@
 
       var otherSection = '';
       if (otherTasks.length) {
-        otherSection = '\n\n=== ДРУГИЕ ЗАДАЧИ (' + otherTasks.length + ') ===';
+        otherSection = '\n\n─────────────────────── ДРУГИЕ ЗАДАЧИ (' + otherTasks.length + ') ───────────────────────';
         for (var k = 0; k < otherTasks.length; k++) otherSection += _formatTaskBlock(otherTasks[k]);
       }
 
-      contentEl.textContent = summary + lotsSection + supplierSection + otherSection +
-        '\n\n=== СЫРОЙ JSON ===\n' + JSON.stringify(data, null, 2);
+      contentEl.textContent = topSummary + '\n' + contextBlock + lotsSection + supplierSection + otherSection +
+        '\n\n─────────────────────── СЫРОЙ JSON ───────────────────────\n' + JSON.stringify(data, null, 2);
       logDiag('diagnostics', data);
     } catch (e) {
       contentEl.textContent = 'Ошибка загрузки диагностики: ' + e.message;

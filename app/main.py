@@ -558,7 +558,145 @@ def get_lots_diagnostics(
             "output_length": len(t.output_text or ""),
         }
 
+    serialized_lots = [_serialize(t) for t in lots_tasks[:10]]
+    serialized_suppliers = [_serialize(t) for t in supplier_tasks[:10]]
+    serialized_others = [_serialize(t) for t in other_tasks[:5]]
+
+    # ── Build human-readable summary at the top ─────────────────────────
+    def _fmt_age(seconds: Optional[int]) -> str:
+        if seconds is None:
+            return "(unknown)"
+        m, s = divmod(int(seconds), 60)
+        if m > 0:
+            return f"{m}м {s}с"
+        return f"{s}с"
+
+    def _parse_note(task_dict: dict) -> Optional[str]:
+        """Extract 'note' field from a task's output_preview JSON if present."""
+        out = task_dict.get("output_preview") or ""
+        if not out:
+            return None
+        try:
+            data = json.loads(out)
+            if isinstance(data, dict):
+                return data.get("note")
+        except Exception:
+            return None
+        return None
+
+    # Lots verdict
+    latest_lots = serialized_lots[0] if serialized_lots else None
+    failed_lots_count = sum(1 for t in serialized_lots if t["status"] == "failed")
+    if lots_count > 0:
+        lots_verdict = "ok"
+        lots_status_text = f"✅ {lots_count} лотов распознано"
+        lots_action = None
+    elif latest_lots and latest_lots["status"] in ("queued", "in_progress"):
+        lots_verdict = "running"
+        lots_status_text = f"🔄 Распознаётся (задача #{latest_lots['id']}, возраст {_fmt_age(latest_lots['age_seconds'])})"
+        lots_action = "Подождите завершения, либо нажмите «Сбросить распознавание»"
+    elif latest_lots and latest_lots["status"] == "failed":
+        lots_verdict = "failed"
+        lots_status_text = f"❌ Последняя попытка #{latest_lots['id']} упала"
+        lots_action = "Нажмите «Распознать ещё раз» в основном UI"
+    elif not purchase.terms_text:
+        lots_verdict = "idle"
+        lots_status_text = "⚪ Пусто (ТЗ не загружено)"
+        lots_action = "Загрузите ТЗ в карточке закупки"
+    else:
+        lots_verdict = "idle"
+        lots_status_text = "⚪ Распознавание ещё не запускалось"
+        lots_action = None
+
+    # Supplier search verdict
+    latest_supplier = serialized_suppliers[0] if serialized_suppliers else None
+    if latest_supplier and latest_supplier["status"] in ("queued", "in_progress"):
+        sec_since = latest_supplier.get("seconds_since_update")
+        note = _parse_note(latest_supplier) or "(нет данных о стадии)"
+        is_stuck = sec_since is not None and sec_since > 180
+        if is_stuck:
+            supplier_verdict = "stuck"
+            supplier_status_text = (
+                f"⚠ ВОЗМОЖНО ЗАВИСЛА (задача #{latest_supplier['id']}, "
+                f"нет обновлений {_fmt_age(sec_since)})"
+            )
+            supplier_action = "Нажмите «Сбросить поиск поставщиков» и запустите заново"
+        else:
+            supplier_verdict = "running"
+            update_str = (
+                f", последнее обновление {_fmt_age(sec_since)} назад"
+                if sec_since is not None
+                else ""
+            )
+            supplier_status_text = (
+                f"🔄 Идёт поиск (задача #{latest_supplier['id']}, "
+                f"возраст {_fmt_age(latest_supplier['age_seconds'])}{update_str})"
+            )
+            supplier_action = (
+                f"Текущая стадия: {note}. "
+                f"Краулинг сайтов через Selenium может занимать 5-15 минут — это нормально."
+            )
+    elif suppliers_count > 0:
+        supplier_verdict = "ok"
+        supplier_status_text = f"✅ Найдено поставщиков: {suppliers_count}"
+        supplier_action = None
+    elif latest_supplier and latest_supplier["status"] == "completed":
+        supplier_verdict = "warning"
+        supplier_status_text = "⚠ Задача завершена, но поставщиков не найдено"
+        supplier_action = "Запустите поиск ещё раз — возможно временная проблема с провайдерами"
+    elif latest_supplier and latest_supplier["status"] == "failed":
+        supplier_verdict = "failed"
+        supplier_status_text = f"❌ Последняя попытка #{latest_supplier['id']} упала"
+        supplier_action = "Запустите поиск заново через основной UI"
+    else:
+        supplier_verdict = "idle"
+        supplier_status_text = "⚪ Поиск ещё не запускался"
+        supplier_action = "Нажмите «Запустить поиск» в карточке закупки"
+
+    # Infrastructure verdict
+    infra_problems = []
+    if not embedded_queue_enabled:
+        infra_problems.append("ENABLE_EMBEDDED_QUEUE=false (lots_extraction worker не запустится)")
+    if not worker_alive:
+        infra_problems.append("Backend worker thread мёртв")
+    if not bool(os.getenv("OPENAI_API_KEY")):
+        infra_problems.append("OPENAI_API_KEY не задан")
+
+    if infra_problems:
+        infra_verdict = "broken"
+        infra_status_text = "❌ ПРОБЛЕМЫ: " + "; ".join(infra_problems)
+    else:
+        infra_verdict = "ok"
+        infra_status_text = "✅ Всё в порядке"
+
+    summary = {
+        "lots": {
+            "verdict": lots_verdict,
+            "status": lots_status_text,
+            "lots_in_db": lots_count,
+            "completed_count": sum(1 for t in serialized_lots if t["status"] == "completed"),
+            "failed_count": failed_lots_count,
+            "action_hint": lots_action,
+        },
+        "supplier_search": {
+            "verdict": supplier_verdict,
+            "status": supplier_status_text,
+            "suppliers_in_db": suppliers_count,
+            "active_task_id": latest_supplier["id"] if latest_supplier and latest_supplier["status"] in ("queued", "in_progress") else None,
+            "current_stage": _parse_note(latest_supplier) if latest_supplier else None,
+            "action_hint": supplier_action,
+        },
+        "infrastructure": {
+            "verdict": infra_verdict,
+            "status": infra_status_text,
+            "embedded_queue_enabled": embedded_queue_enabled,
+            "backend_worker_alive": worker_alive,
+            "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
+        },
+    }
+
     return {
+        "summary": summary,
         "purchase_id": purchase_id,
         "purchase_status": purchase.status,
         "has_terms_text": bool(purchase.terms_text),
@@ -571,11 +709,11 @@ def get_lots_diagnostics(
         "openai_api_key_set": bool(os.getenv("OPENAI_API_KEY")),
         "openai_base_url": os.getenv("OPENAI_BASE_URL") or None,
         "openai_model": os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-        "lots_tasks": [_serialize(t) for t in lots_tasks[:10]],
-        "supplier_tasks": [_serialize(t) for t in supplier_tasks[:10]],
-        "other_tasks": [_serialize(t) for t in other_tasks[:5]],
+        "lots_tasks": serialized_lots,
+        "supplier_tasks": serialized_suppliers,
+        "other_tasks": serialized_others,
         # Backward-compat alias for the old field name
-        "tasks": [_serialize(t) for t in lots_tasks[:10]],
+        "tasks": serialized_lots,
     }
 
 
