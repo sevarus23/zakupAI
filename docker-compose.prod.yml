@@ -38,8 +38,36 @@ services:
       PAGE_LOAD_TIMEOUT: ${PAGE_LOAD_TIMEOUT:-25}
       QUERY_DOCS_LIMIT: ${QUERY_DOCS_LIMIT:-3}
       ENABLE_EMBEDDED_QUEUE: ${ENABLE_EMBEDDED_QUEUE:-true}
+      GISP_SCRAPER_URL: ${GISP_SCRAPER_URL:-http://gisp-scraper:8000}
     expose:
       - "8000"
+
+  gisp-scraper:
+    build:
+      context: ./gisp-scraper
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      GISP_MAX_CONCURRENT: ${GISP_MAX_CONCURRENT:-3}
+      PP719_HTTP_TIMEOUT: ${PP719_HTTP_TIMEOUT:-30}
+      CATALOG_PAGE_TIMEOUT: ${CATALOG_PAGE_TIMEOUT:-30}
+      LOG_LEVEL: ${GISP_SCRAPER_LOG_LEVEL:-INFO}
+    expose:
+      - "8000"
+    # Selenium spawns helper processes; the default 64 MB shm causes Chromium crashes.
+    shm_size: "1gb"
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+        reservations:
+          memory: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request, sys; sys.exit(0) if urllib.request.urlopen(\"http://localhost:8000/health\", timeout=3).status == 200 else sys.exit(1)'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   etl:
     build:

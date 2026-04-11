@@ -1,0 +1,134 @@
+name: GISP scraper smoke-test
+
+on:
+  workflow_dispatch:
+    inputs:
+      registry_number:
+        description: 'Registry number to look up'
+        required: true
+        default: '10085920'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build and test gisp-scraper on VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # 8 minutes — building Chromium image is slow first time
+          command_timeout: 8m
+          script: |
+            set -e
+            REG="${{ github.event.inputs.registry_number }}"
+            cd /opt/zakupai
+
+            echo "=== git pull ==="
+            git fetch origin
+            git checkout feat/gisp-scraper-fix
+            git pull --ff-only origin feat/gisp-scraper-fix
+
+            echo ""
+            echo "=== build gisp-scraper image ==="
+            docker compose -f docker-compose.prod.yml build gisp-scraper
+
+            echo ""
+            echo "=== start gisp-scraper container ==="
+            docker compose -f docker-compose.prod.yml up -d gisp-scraper
+
+            echo ""
+            echo "=== wait for healthcheck ==="
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              if docker compose -f docker-compose.prod.yml exec -T gisp-scraper python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)" >/dev/null 2>&1; then
+                echo "  scraper is up after ${i}s"
+                break
+              fi
+              sleep 1
+            done
+
+            echo ""
+            echo "=== /health ==="
+            docker compose -f docker-compose.prod.yml exec -T gisp-scraper python -c "
+            import urllib.request, json
+            r = urllib.request.urlopen('http://localhost:8000/health', timeout=5)
+            print(json.dumps(json.loads(r.read()), indent=2))
+            "
+
+            echo ""
+            echo "=== /pp719/$REG ==="
+            docker compose -f docker-compose.prod.yml exec -T gisp-scraper python -c "
+            import urllib.request, json
+            r = urllib.request.urlopen('http://localhost:8000/pp719/$REG', timeout=30)
+            data = json.loads(r.read())
+            print('status:', data.get('status'))
+            print('matched_count:', data.get('matched_count'))
+            active = data.get('active_record')
+            if active:
+                print('active_record:')
+                print('  product_name:           ', active.get('product_name'))
+                print('  org_name:               ', active.get('org_name'))
+                print('  org_inn:                ', active.get('org_inn'))
+                print('  product_okpd2:          ', active.get('product_okpd2'))
+                print('  product_tnved:          ', active.get('product_tnved'))
+                print('  res_valid_till:         ', active.get('res_valid_till'))
+                print('  res_end_date:           ', active.get('res_end_date'))
+                print('  product_gisp_id:        ', active.get('product_gisp_id'))
+                print('  product_gisp_url:       ', active.get('product_gisp_url'))
+                print('  product_score_value:    ', active.get('product_score_value'))
+                print('  product_percentage:     ', active.get('product_percentage'))
+            else:
+                print('no active record')
+            print('all_records:', len(data.get('all_records', [])))
+            for i, r in enumerate(data.get('all_records', [])):
+                print(f'  [{i}] reg_2023={r.get(\"product_reg_number_2023\")} valid_till={r.get(\"res_valid_till\")} end={r.get(\"res_end_date\")} res_date={r.get(\"res_date\")}')
+            "
+
+            echo ""
+            echo "=== /catalog/{product_id} (heavy, ~10-15s) ==="
+            PID=$(docker compose -f docker-compose.prod.yml exec -T gisp-scraper python -c "
+            import urllib.request, json
+            r = urllib.request.urlopen('http://localhost:8000/pp719/$REG', timeout=30)
+            data = json.loads(r.read())
+            active = data.get('active_record') or {}
+            print(active.get('product_gisp_id') or '', end='')
+            ")
+            echo "extracted product_id: '$PID'"
+            if [ -n "$PID" ]; then
+              docker compose -f docker-compose.prod.yml exec -T gisp-scraper python -c "
+            import urllib.request, json
+            r = urllib.request.urlopen('http://localhost:8000/catalog/$PID', timeout=120)
+            data = json.loads(r.read())
+            print('product_id:', data.get('product_id'))
+            print('url:       ', data.get('url'))
+            print('tabs_seen: ', data.get('tabs_seen'))
+            print('warnings:  ', data.get('warnings'))
+            by_tab = data.get('by_tab') or {}
+            print(f'by_tab: {len(by_tab)} tabs')
+            for tab, chars in by_tab.items():
+                print(f'  [{tab}] {len(chars)} chars')
+                for k, v in list(chars.items())[:3]:
+                    val = v if len(v) < 60 else v[:57] + '...'
+                    print(f'    {k} = {val}')
+            print(f'flat: {len(data.get(\"flat\", {}))} entries')
+            "
+            else
+              echo "no product_id, skipping catalog test"
+            fi
+
+            echo ""
+            echo "=== container stats ==="
+            docker stats --no-stream zakupai-gisp-scraper-1 2>/dev/null || docker stats --no-stream $(docker compose -f docker-compose.prod.yml ps -q gisp-scraper)
+
+            echo ""
+            echo "=== container logs (last 30) ==="
+            docker compose -f docker-compose.prod.yml logs gisp-scraper --tail=30
+
+            echo ""
+            echo "=== stop scraper (don't leave running) ==="
+            docker compose -f docker-compose.prod.yml stop gisp-scraper
+
+            echo ""
+            echo "=== checkout back to main ==="
+            git checkout main

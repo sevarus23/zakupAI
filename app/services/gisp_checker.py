@@ -1,23 +1,95 @@
-"""Check product characteristics against GISP catalog (gisp.gov.ru)."""
+"""Compare a supplier's product characteristics against the GISP catalog.
+
+This module talks to the in-cluster ``gisp-scraper`` microservice (see
+``gisp-scraper/`` at the repo root) instead of trying to hit the GISP REST API
+directly — the GISP catalog is an Angular SPA without a public JSON API, so
+real characteristics can only be obtained via a headless browser.
+
+Flow per item:
+
+1. POST to scraper /pp719/{registry_number}.
+   - status="found_actual"  → keep going, we know which product card to scrape.
+   - status="found_expired" → don't scrape characteristics; the registry number
+     is real but no longer in force; surface a warning.
+   - status="not_found"     → return not_found; no characteristics to compare.
+
+2. If active, GET scraper /catalog/{product_id} to get key/value characteristics
+   organized by tab.
+
+3. Hand the supplier's chars + GISP's chars to the LLM comparator
+   (``compare_characteristics`` in ``llm_client``).
+
+4. Roll up to a single status: ok | warning | mismatch | not_found |
+   gisp_unavailable | not_actual | skipped.
+
+The scraper URL is configurable via ``GISP_SCRAPER_URL`` (default
+``http://gisp-scraper:8000`` for docker-compose). If the scraper itself is
+unreachable, we degrade gracefully to ``gisp_unavailable``.
+"""
+from __future__ import annotations
+
+import logging
 import os
-import httpx
-import re
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
+
+import httpx
+
 from .llm_client import compare_characteristics
 
+logger = logging.getLogger(__name__)
 
-GISP_CATALOG_SEARCH = "https://gisp.gov.ru/products/api/v1/products/"
-GISP_PRODUCT_URL = "https://gisp.gov.ru/products/api/v1/products/{id}/"
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+GISP_SCRAPER_URL = os.getenv("GISP_SCRAPER_URL", "http://gisp-scraper:8000").rstrip("/")
+SCRAPER_LOOKUP_TIMEOUT = float(os.getenv("GISP_SCRAPER_LOOKUP_TIMEOUT", "30"))
+SCRAPER_CATALOG_TIMEOUT = float(os.getenv("GISP_SCRAPER_CATALOG_TIMEOUT", "60"))
+
+# Tabs we consider authoritative for characteristic comparison. Order matters —
+# we walk them in priority order. Anything in "Технические характеристики" wins
+# over anything in "Описание".
+_TECH_TAB_PRIORITY = [
+    "Технические характеристики",
+    "Описание",
+    "Сведения о стандартизации",
+]
+
+
+# ---------------------------------------------------------------------------
+# Result type
+# ---------------------------------------------------------------------------
 
 
 @dataclass
 class GispResult:
-    status: str  # ok | mismatch | warning | skipped | not_found | gisp_unavailable
+    """What ``check_runner`` writes into a RegimeCheckItem.
+
+    Status semantics (intentionally a subset of what check_runner._compute_overall
+    already understands, so we don't have to touch its rollup logic):
+
+        ok               — every supplier characteristic agrees with GISP
+        warning          — wording/missing_in_gisp issues OR registry entry is
+                           expired (the scraper saw found_expired even though
+                           the local snapshot still considered it active)
+        mismatch         — at least one numeric/material disagreement
+        not_found        — registry number is not in PP-719v2 (or no exact match)
+        gisp_unavailable — scraper or upstream GISP is down; check inconclusive
+        skipped          — supplier didn't provide characteristics; nothing to compare
+    """
+
+    status: str
     gisp_characteristics: list[dict] = field(default_factory=list)
     comparison: list[dict] = field(default_factory=list)
     gisp_url: Optional[str] = None
     product_id: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 async def check_gisp_characteristics(
@@ -26,144 +98,200 @@ async def check_gisp_characteristics(
     supplier_characteristics: list[dict],
     client: Optional[httpx.AsyncClient] = None,
 ) -> GispResult:
-    """
-    Find product in GISP catalog by registry number and compare characteristics.
-    Accepts optional shared httpx client.
+    """Look up the product in GISP and compare characteristics with what the supplier sent.
+
+    Caller may pass a shared httpx client; otherwise we create a per-call one.
+    Network errors against the scraper degrade to ``gisp_unavailable`` (warning),
+    not an exception, so a single check can finish all items in a file.
     """
     if not supplier_characteristics:
         return GispResult(status="skipped")
 
+    own_client = client is None
+    if own_client:
+        client = httpx.AsyncClient(timeout=SCRAPER_CATALOG_TIMEOUT)
+
     try:
-        gisp_product = await _fetch_gisp_product(registry_number, product_name, client)
-    except _GispUnavailable:
-        return GispResult(status="gisp_unavailable")
+        # Step 1: registry lookup
+        try:
+            lookup = await _scraper_pp719(client, registry_number)
+        except _ScraperUnavailable as exc:
+            logger.warning("gisp-scraper /pp719 failed for %s: %s", registry_number, exc)
+            return GispResult(status="gisp_unavailable")
 
-    if not gisp_product:
-        return GispResult(status="not_found")
+        if lookup is None or lookup.get("status") == "not_found":
+            return GispResult(status="not_found")
 
-    gisp_chars = _extract_characteristics(gisp_product)
-    product_id = str(gisp_product.get("id", ""))
-    gisp_url = f"https://gisp.gov.ru/products/{product_id}/" if product_id else None
+        active = lookup.get("active_record") or {}
+        gisp_url = active.get("product_gisp_url")
+        product_id = active.get("product_gisp_id")
 
-    if not gisp_chars:
-        # GISP card exists but no characteristics filled
-        return GispResult(
-            status="warning",
-            gisp_characteristics=[],
-            comparison=[
-                {
-                    "name": c.get("name", ""),
-                    "supplier_value": c.get("value", ""),
+        if lookup.get("status") == "found_expired":
+            # Registry entry exists but is no longer in force. The local
+            # registry_checker may still have called this number "ok" because
+            # its snapshot is stale. Surface as warning with an explicit
+            # comparison row so the user sees why.
+            return GispResult(
+                status="warning",
+                gisp_url=gisp_url,
+                product_id=product_id,
+                comparison=[{
+                    "name": "Срок действия записи ПП-719",
+                    "supplier_value": "—",
+                    "gisp_value": "истёк",
+                    "status": "missing_in_gisp",
+                    "comment": "Реестровый номер найден в ПП-719v2, но запись не действует",
+                }],
+            )
+
+        # Step 2: catalog scrape (only if we know which card)
+        if not product_id:
+            return GispResult(
+                status="warning",
+                gisp_url=gisp_url,
+                comparison=[{
+                    "name": "—",
+                    "supplier_value": "",
                     "gisp_value": None,
                     "status": "missing_in_gisp",
-                    "comment": "Карточка ГИСП не содержит характеристик",
-                }
-                for c in supplier_characteristics
-            ],
+                    "comment": "Запись ПП-719 найдена, но в ней нет ссылки на каталог ГИСП",
+                }],
+            )
+
+        try:
+            catalog = await _scraper_catalog(client, product_id)
+        except _ScraperUnavailable as exc:
+            logger.warning("gisp-scraper /catalog failed for %s: %s", product_id, exc)
+            return GispResult(
+                status="gisp_unavailable",
+                gisp_url=gisp_url,
+                product_id=product_id,
+            )
+
+        gisp_chars = _select_characteristics(catalog or {})
+
+        if not gisp_chars:
+            return GispResult(
+                status="warning",
+                gisp_characteristics=[],
+                gisp_url=gisp_url,
+                product_id=product_id,
+                comparison=[
+                    {
+                        "name": c.get("name", ""),
+                        "supplier_value": c.get("value", ""),
+                        "gisp_value": None,
+                        "status": "missing_in_gisp",
+                        "comment": "Карточка ГИСП не содержит структурированных характеристик",
+                    }
+                    for c in supplier_characteristics
+                ],
+            )
+
+        # Step 3: LLM comparison (existing function — model swappable via env)
+        comparison = await compare_characteristics(
+            supplier_chars=supplier_characteristics,
+            gisp_chars=gisp_chars,
+            product_name=product_name,
+        )
+
+        return GispResult(
+            status=_rollup(comparison),
+            gisp_characteristics=gisp_chars,
+            comparison=comparison,
             gisp_url=gisp_url,
             product_id=product_id,
         )
-
-    # Use LLM to compare
-    comparison = await compare_characteristics(
-        supplier_chars=supplier_characteristics,
-        gisp_chars=gisp_chars,
-        product_name=product_name,
-    )
-
-    # Determine overall status
-    statuses = {c.get("status") for c in comparison}
-    if "mismatch" in statuses:
-        overall = "mismatch"
-    elif "wording" in statuses or "missing_in_gisp" in statuses:
-        overall = "warning"
-    else:
-        overall = "ok"
-
-    return GispResult(
-        status=overall,
-        gisp_characteristics=gisp_chars,
-        comparison=comparison,
-        gisp_url=gisp_url,
-        product_id=product_id,
-    )
-
-
-class _GispUnavailable(Exception):
-    """Raised when GISP catalog API is not reachable."""
-    pass
-
-
-async def _fetch_gisp_product(
-    registry_number: str,
-    product_name: str,
-    client: Optional[httpx.AsyncClient] = None,
-) -> Optional[dict]:
-    """Fetch product from GISP catalog. Raises _GispUnavailable if API is down."""
-    clean_number = re.sub(r"[^\d]", "", registry_number or "")
-
-    own_client = client is None
-    if own_client:
-        proxy = os.getenv("GISP_PROXY_URL") or None
-        client = httpx.AsyncClient(timeout=30.0, follow_redirects=True, proxy=proxy)
-
-    got_any_response = False
-
-    try:
-        # Search by registry number
-        if clean_number:
-            resp = await client.get(
-                GISP_CATALOG_SEARCH,
-                params={"reg_number": clean_number, "page_size": 5},
-                headers={"Accept": "application/json"},
-            )
-            got_any_response = True
-            if resp.status_code == 200:
-                data = resp.json()
-                results = data.get("results", data.get("items", []))
-                if results:
-                    return results[0]
-            elif resp.status_code >= 500:
-                raise _GispUnavailable(f"GISP returned {resp.status_code}")
-
-        # Fallback: search by name
-        if product_name:
-            resp2 = await client.get(
-                GISP_CATALOG_SEARCH,
-                params={"search": product_name[:100], "page_size": 3},
-                headers={"Accept": "application/json"},
-            )
-            got_any_response = True
-            if resp2.status_code == 200:
-                data2 = resp2.json()
-                results2 = data2.get("results", data2.get("items", []))
-                if results2:
-                    return results2[0]
-            elif resp2.status_code >= 500:
-                raise _GispUnavailable(f"GISP returned {resp2.status_code}")
-    except httpx.RequestError as e:
-        raise _GispUnavailable(f"GISP connection error: {e}")
     finally:
         if own_client:
             await client.aclose()
 
-    return None
+
+# ---------------------------------------------------------------------------
+# Scraper transport
+# ---------------------------------------------------------------------------
 
 
-def _extract_characteristics(product: dict) -> list[dict]:
-    """Extract characteristics list from GISP product JSON."""
-    chars = []
+class _ScraperUnavailable(Exception):
+    """Raised when the gisp-scraper microservice can't be reached or responds non-OK."""
 
-    # Various field names in GISP API
-    for field_name in ("characteristics", "params", "properties", "attributes", "specs"):
-        raw = product.get(field_name)
-        if isinstance(raw, list) and raw:
-            for item in raw:
-                if isinstance(item, dict):
-                    name = item.get("name", item.get("title", item.get("param_name", "")))
-                    value = item.get("value", item.get("val", item.get("param_value", "")))
-                    if name:
-                        chars.append({"name": str(name), "value": str(value) if value is not None else ""})
-            return chars
 
-    return chars
+async def _scraper_pp719(client: httpx.AsyncClient, registry_number: str) -> Optional[dict[str, Any]]:
+    url = f"{GISP_SCRAPER_URL}/pp719/{registry_number.strip()}"
+    try:
+        resp = await client.get(url, timeout=SCRAPER_LOOKUP_TIMEOUT)
+    except httpx.RequestError as exc:
+        raise _ScraperUnavailable(f"connection error: {exc}")
+
+    if resp.status_code == 404:
+        # Scraper itself returned 404 — registry-not-found, not transport failure
+        return {"status": "not_found"}
+    if resp.status_code == 400:
+        # We sent a malformed registry number; treat as not_found, not unavailable
+        return {"status": "not_found"}
+    if resp.status_code >= 500:
+        raise _ScraperUnavailable(f"upstream HTTP {resp.status_code}")
+    if resp.status_code != 200:
+        raise _ScraperUnavailable(f"unexpected HTTP {resp.status_code}")
+
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise _ScraperUnavailable(f"non-JSON response: {exc}")
+
+
+async def _scraper_catalog(client: httpx.AsyncClient, product_id: str) -> Optional[dict[str, Any]]:
+    url = f"{GISP_SCRAPER_URL}/catalog/{product_id}"
+    try:
+        resp = await client.get(url, timeout=SCRAPER_CATALOG_TIMEOUT)
+    except httpx.RequestError as exc:
+        raise _ScraperUnavailable(f"connection error: {exc}")
+
+    if resp.status_code >= 500:
+        raise _ScraperUnavailable(f"upstream HTTP {resp.status_code}")
+    if resp.status_code != 200:
+        raise _ScraperUnavailable(f"unexpected HTTP {resp.status_code}")
+
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise _ScraperUnavailable(f"non-JSON response: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Catalog → flat characteristic list
+# ---------------------------------------------------------------------------
+
+
+def _select_characteristics(catalog: dict[str, Any]) -> list[dict]:
+    """Pick the most useful characteristic set out of the scraper's by_tab map.
+
+    GISP catalog cards usually have one tab with technical specs (Высота,
+    Ширина, Цвет, …) and one with descriptive marketing copy. The technical
+    tab is what the LLM should compare against. If the technical tab is
+    missing, fall back to the flat union.
+    """
+    by_tab = catalog.get("by_tab") or {}
+
+    for preferred in _TECH_TAB_PRIORITY:
+        chars = by_tab.get(preferred)
+        if chars:
+            return [{"name": str(k), "value": str(v)} for k, v in chars.items()]
+
+    flat = catalog.get("flat") or {}
+    return [{"name": str(k), "value": str(v)} for k, v in flat.items()]
+
+
+# ---------------------------------------------------------------------------
+# Comparison → single status
+# ---------------------------------------------------------------------------
+
+
+def _rollup(comparison: list[dict]) -> str:
+    """Reduce per-characteristic statuses to one item-level status."""
+    statuses = {c.get("status") for c in comparison}
+    if "mismatch" in statuses:
+        return "mismatch"
+    if "wording" in statuses or "missing_in_gisp" in statuses:
+        return "warning"
+    return "ok"
