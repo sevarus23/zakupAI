@@ -1578,8 +1578,9 @@
       html += '<div style="font-size:12px;color:var(--danger);margin-top:4px">Нет распознанных позиций. Сначала запустите распознавание в «Письма и КП».</div>';
     }
     if (hasExtracting) {
-      html += '<div style="font-size:12px;color:var(--accent);margin-top:4px">Идёт распознавание позиций из КП... Подождите.</div>';
+      html += '<div style="font-size:12px;color:var(--accent);margin-top:4px;display:flex;align-items:center;gap:6px"><span class="spinner" style="width:12px;height:12px;border-width:1.5px;display:inline-block;vertical-align:middle"></span> Идёт распознавание позиций из КП... Подождите.</div>';
     }
+    html += '<div id="regime-upload-status"></div>';
     container.innerHTML = html;
     _bindRegimeUpload();
 
@@ -1620,6 +1621,16 @@
     }
   }
 
+  function _setRegimeUploadStatus(msg, type) {
+    // type: 'info' | 'error' | 'clear'
+    var el = document.getElementById('regime-upload-status');
+    if (!el) return;
+    if (!msg || type === 'clear') { el.innerHTML = ''; return; }
+    var color = type === 'error' ? 'var(--danger)' : 'var(--accent)';
+    var icon = type === 'error' ? '&#10007;' : '<span class="spinner" style="width:12px;height:12px;border-width:1.5px;display:inline-block;vertical-align:middle"></span>';
+    el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;font-size:13px;color:' + color + ';padding:8px 0">' + icon + ' ' + escapeHtml(msg) + '</div>';
+  }
+
   async function _handleRegimeKpUpload() {
     var files = this.files;
     if (!files || files.length === 0) return;
@@ -1631,12 +1642,12 @@
     var total = files.length;
     var uploaded = 0;
     var errors = [];
-    showMessage('Загрузка ' + total + ' КП...');
+    _setRegimeUploadStatus('Загрузка ' + total + ' КП...', 'info');
 
     for (var i = 0; i < total; i++) {
       var file = files[i];
       try {
-        showMessage('Конвертация ' + (i + 1) + '/' + total + ': ' + file.name);
+        _setRegimeUploadStatus('Конвертация ' + (i + 1) + '/' + total + ': ' + file.name, 'info');
         var converted = await API.convertTechTaskFile(file);
         if (converted && converted.markdown) {
           var supplierName = file.name.replace(/\.[^.]+$/, '');
@@ -1658,10 +1669,9 @@
     await loadBids();
     renderRegimeBids();
     if (errors.length > 0) {
-      showError('Ошибки: ' + errors.join('; '));
-    } else {
-      showMessage('Загружено ' + uploaded + ' КП. Распознавание позиций...');
+      _setRegimeUploadStatus('Ошибки: ' + errors.join('; '), 'error');
     }
+    // Status will be shown by renderRegimeBids via polling (spinner on cards)
   }
 
   function loadRegimeCheck() {
@@ -1695,14 +1705,11 @@
           renderRegimeProgress(progress);
           _scheduleRegimePoll();
         } else if (progress && progress.status === 'done') {
-          // Show completed stages briefly, then load results
-          renderRegimeProgress(progress);
           stopRegimeTimer();
-          setTimeout(function () {
-            API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check')
-              .then(function (data) { renderRegimeResults(data); })
-              .catch(function () { renderRegimeResults(null); });
-          }, 2000);
+          // Load results immediately, pass progress for summary
+          API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check')
+            .then(function (data) { renderRegimeResults(data, progress); })
+            .catch(function () { renderRegimeResults(null, progress); });
         } else if (progress && progress.status === 'error') {
           renderRegimeError(progress.message);
         } else {
@@ -1797,7 +1804,7 @@
     $('regime-results').innerHTML = html;
   }
 
-  function renderRegimeResults(data) {
+  function renderRegimeResults(data, progress) {
     stopRegimeTimer();
     regimeStartTime = null;
     if (!data || !data.items || data.items.length === 0) {
@@ -1823,6 +1830,42 @@
     }
 
     var html = '';
+
+    // Summary banner with completed stages + counts
+    var totalOk = 0, totalWarn = 0, totalErr = 0, totalNf = 0;
+    for (var _k in groups) { totalOk += groups[_k].ok; totalWarn += groups[_k].warn; totalErr += groups[_k].err; totalNf += groups[_k].nf; }
+    var summaryColor = totalErr > 0 ? 'var(--danger)' : totalWarn > 0 ? 'var(--warning)' : 'var(--success)';
+    var summaryBg = totalErr > 0 ? 'var(--danger-bg)' : totalWarn > 0 ? 'var(--warning-bg)' : 'var(--success-bg)';
+    html += '<div style="background:' + summaryBg + ';border-radius:8px;padding:12px 16px;margin-bottom:16px">';
+    html += '<div style="display:flex;align-items:center;gap:12px">';
+    html += '<div style="color:' + summaryColor + ';font-size:18px">&#10003;</div>';
+    html += '<div><strong style="color:' + summaryColor + '">Проверка завершена</strong>';
+    html += '<span style="margin-left:12px;font-size:13px;color:var(--text-secondary)">' + data.items.length + ' товаров</span></div>';
+    if (progress && progress.timings && progress.timings.total) {
+      html += '<div style="margin-left:auto;font-size:13px;color:var(--text-secondary)">' + progress.timings.total + 'с</div>';
+    }
+    html += '</div>';
+    // Counts row
+    html += '<div style="display:flex;gap:16px;margin-top:8px;font-size:13px">';
+    if (totalOk > 0) html += '<span style="color:var(--success)">&#10003; ' + totalOk + ' соответствует</span>';
+    if (totalWarn > 0) html += '<span style="color:var(--warning)">&#9888; ' + totalWarn + ' внимание</span>';
+    if (totalErr > 0) html += '<span style="color:var(--danger)">&#10007; ' + totalErr + ' не соответствует</span>';
+    if (totalNf > 0) html += '<span style="color:var(--text-secondary)">&#8212; ' + totalNf + ' не найден</span>';
+    html += '</div>';
+    // Stages summary (collapsed)
+    if (progress && progress.stages && progress.stages.length > 0) {
+      html += '<div style="margin-top:8px;font-size:12px;color:var(--text-secondary)">';
+      for (var si = 0; si < progress.stages.length; si++) {
+        var stg = progress.stages[si];
+        var stgIcon = stg.status === 'done' ? '<span style="color:var(--success)">&#10003;</span>' : stg.status === 'skipped' ? '&#8212;' : '&#9675;';
+        html += stgIcon + ' ' + escapeHtml(stg.name);
+        if (stg.detail) html += ' <span style="color:var(--accent)">' + escapeHtml(stg.detail) + '</span>';
+        if (si < progress.stages.length - 1) html += ' &nbsp;|&nbsp; ';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+
     var hasMultiple = groupOrder.length > 1;
 
     // Supplier tabs (only if multiple suppliers)
