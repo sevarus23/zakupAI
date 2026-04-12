@@ -1294,17 +1294,14 @@
       try {
         this.disabled = true;
         $('comparison-results').innerHTML = '';
-        var defaultStages = [
-          {name: 'Загрузка данных', status: 'pending', detail: ''},
-          {name: 'Эмбеддинги лотов', status: 'pending', detail: ''},
-          {name: 'Сопоставление лотов (LLM)', status: 'pending', detail: ''},
-          {name: 'Сопоставление характеристик', status: 'pending', detail: ''},
-          {name: 'Формирование результата', status: 'pending', detail: ''},
-        ];
+        var stageNames = ['Загрузка данных', 'Эмбеддинги лотов', 'Сопоставление лотов (LLM)', 'Сопоставление характеристик', 'Формирование результата'];
         // Start comparison for ALL bids
-        _comparisonBidQueue = currentBids.map(function (b) {
-          return { bid_id: b.id, name: b.supplier_name || 'Поставщик', status: 'in_progress',
-                   stages: defaultStages.map(function (s) { return {name: s.name, status: s.status, detail: s.detail}; }) };
+        _comparisonBidQueue = currentBids.map(function (b, idx) {
+          var stages = stageNames.map(function (name) { return {name: name, status: 'pending', detail: ''}; });
+          // First bid gets spinner on first stage; rest show "в очереди"
+          if (idx === 0) stages[0].status = 'in_progress';
+          return { bid_id: b.id, name: b.supplier_name || 'Поставщик',
+                   status: idx === 0 ? 'in_progress' : 'queued', stages: stages };
         });
         _renderComparisonAllProgress();
         // Fire all POSTs in parallel
@@ -1448,16 +1445,18 @@
       var entry = _comparisonBidQueue[b];
       var bidIcon = '&#9675;';
       var bidColor = 'var(--text-secondary)';
+      var bidExtra = '';
       if (entry.status === 'done') { bidIcon = '<span style="color:var(--success)">&#10003;</span>'; bidColor = 'var(--text)'; }
-      else if (entry.status === 'in_progress' || entry.status === 'starting') { bidIcon = '<div class="spinner" style="width:14px;height:14px;display:inline-block"></div>'; bidColor = 'var(--accent)'; }
+      else if (entry.status === 'in_progress') { bidIcon = '<div class="spinner" style="width:14px;height:14px;display:inline-block"></div>'; bidColor = 'var(--accent)'; }
+      else if (entry.status === 'queued' || entry.status === 'pending') { bidExtra = '<span style="color:var(--text-secondary);font-size:12px;margin-left:8px">в очереди</span>'; }
       else if (entry.status === 'failed') { bidIcon = '<span style="color:var(--danger)">&#10007;</span>'; bidColor = 'var(--danger)'; }
       html += '<div style="margin-bottom:8px">';
       html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;color:' + bidColor + ';font-weight:500">';
       html += '<span style="width:20px;text-align:center">' + bidIcon + '</span>';
-      html += '<span>' + escapeHtml(entry.name) + '</span>';
+      html += '<span>' + escapeHtml(entry.name) + '</span>' + bidExtra;
       html += '</div>';
-      // Show stages for in-progress bid
-      if (entry.stages && (entry.status === 'in_progress' || entry.status === 'done')) {
+      // Show stages for active/done bids (not queued)
+      if (entry.stages && entry.status !== 'queued' && entry.status !== 'pending') {
         for (var si = 0; si < entry.stages.length; si++) {
           var s = entry.stages[si];
           var sIcon = '&#9675;', sColor = 'var(--text-secondary)';
