@@ -1294,14 +1294,24 @@
       try {
         this.disabled = true;
         $('comparison-results').innerHTML = '';
+        var defaultStages = [
+          {name: 'Загрузка данных', status: 'pending', detail: ''},
+          {name: 'Эмбеддинги лотов', status: 'pending', detail: ''},
+          {name: 'Сопоставление лотов (LLM)', status: 'pending', detail: ''},
+          {name: 'Сопоставление характеристик', status: 'pending', detail: ''},
+          {name: 'Формирование результата', status: 'pending', detail: ''},
+        ];
         // Start comparison for ALL bids
-        _comparisonBidQueue = currentBids.map(function (b) { return { bid_id: b.id, name: b.supplier_name || 'Поставщик', status: 'pending' }; });
+        _comparisonBidQueue = currentBids.map(function (b) {
+          return { bid_id: b.id, name: b.supplier_name || 'Поставщик', status: 'in_progress',
+                   stages: defaultStages.map(function (s) { return {name: s.name, status: s.status, detail: s.detail}; }) };
+        });
         _renderComparisonAllProgress();
-        for (var bi = 0; bi < currentBids.length; bi++) {
-          _comparisonBidQueue[bi].status = 'starting';
-          _renderComparisonAllProgress();
-          await API.apiFetch('/purchases/' + currentPurchase.id + '/bids/' + currentBids[bi].id + '/comparison', { method: 'POST' });
-        }
+        // Fire all POSTs in parallel
+        var postPromises = currentBids.map(function (b) {
+          return API.apiFetch('/purchases/' + currentPurchase.id + '/bids/' + b.id + '/comparison', { method: 'POST' });
+        });
+        await Promise.all(postPromises);
         pollComparisonAll();
       } catch (e) {
         showError('Ошибка запуска сравнения: ' + e.message);
