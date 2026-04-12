@@ -1301,7 +1301,14 @@
       if (!currentPurchase || !selectedBidId) return;
       try {
         this.disabled = true;
-        $('comparison-results').innerHTML = '<div class="card"><div class="card-body"><div class="empty-state">Сравнение запущено...</div></div></div>';
+        $('comparison-results').innerHTML = '';
+        renderComparisonProgress([
+          {name: 'Загрузка данных', status: 'in_progress', detail: ''},
+          {name: 'Эмбеддинги лотов', status: 'pending', detail: ''},
+          {name: 'Сопоставление лотов (LLM)', status: 'pending', detail: ''},
+          {name: 'Сопоставление характеристик', status: 'pending', detail: ''},
+          {name: 'Формирование результата', status: 'pending', detail: ''},
+        ]);
         await API.apiFetch('/purchases/' + currentPurchase.id + '/bids/' + selectedBidId + '/comparison', {
           method: 'POST',
         });
@@ -1309,6 +1316,7 @@
       } catch (e) {
         showError('Ошибка запуска сравнения: ' + e.message);
         this.disabled = false;
+        $('comparison-progress').innerHTML = '';
       }
     });
 
@@ -1347,40 +1355,51 @@
       this.value = '';
     });
 
-    // ── Standalone KP upload on Comparison tab ──
+    // ── Standalone KP upload on Comparison tab (multi-file) ──
     $('comparison-kp-zone').addEventListener('click', function () {
       $('inp-comparison-kp-file').click();
     });
 
     $('inp-comparison-kp-file').addEventListener('change', async function () {
-      var file = this.files[0];
-      if (!file) return;
+      var files = Array.from(this.files || []);
+      if (!files.length) return;
       if (!currentPurchase) {
         showError('Сначала выберите или создайте закупку');
         this.value = '';
         return;
       }
-      try {
-        showMessage('Конвертация КП...');
-        var converted = await API.convertTechTaskFile(file);
-        if (converted && converted.markdown) {
-          var supplierName = file.name.replace(/\.[^.]+$/, '');
-          await API.apiFetch('/purchases/' + currentPurchase.id + '/bids', {
-            method: 'POST',
-            body: {
-              bid_text: converted.markdown,
-              supplier_name: supplierName,
-            },
-          });
-          trackFile(currentPurchase.id, file.name, 'kp');
-          showMessage('КП загружено');
-          loadBids();
+      var statusEl = $('comparison-upload-status');
+      for (var fi = 0; fi < files.length; fi++) {
+        var file = files[fi];
+        var label = file.name + ' (' + (fi + 1) + '/' + files.length + ')';
+        if (statusEl) statusEl.innerHTML = '<div class="upload-inline-status"><div class="spinner" style="width:14px;height:14px"></div> Конвертация: ' + escapeHtml(label) + '</div>';
+        try {
+          var converted = await API.convertTechTaskFile(file);
+          if (converted && converted.markdown) {
+            if (statusEl) statusEl.innerHTML = '<div class="upload-inline-status"><div class="spinner" style="width:14px;height:14px"></div> Сохранение: ' + escapeHtml(label) + '</div>';
+            var supplierName = file.name.replace(/\.[^.]+$/, '');
+            await API.apiFetch('/purchases/' + currentPurchase.id + '/bids', {
+              method: 'POST',
+              body: {
+                bid_text: converted.markdown,
+                supplier_name: supplierName,
+              },
+            });
+            trackFile(currentPurchase.id, file.name, 'kp');
+          }
+        } catch (e) {
+          if (statusEl) statusEl.innerHTML = '<div class="upload-inline-status" style="color:var(--danger)">Ошибка: ' + escapeHtml(file.name) + ' — ' + escapeHtml(e.message) + '</div>';
+          continue;
         }
-      } catch (e) {
-        showError('Ошибка загрузки КП: ' + e.message);
       }
+      if (statusEl) statusEl.innerHTML = '<div class="upload-inline-status" style="color:var(--success)">Загружено ' + files.length + ' файл(ов)</div>';
+      setTimeout(function () { if (statusEl) statusEl.innerHTML = ''; }, 5000);
+      loadBids();
       this.value = '';
     });
+
+    // ── Diagnostics ──
+    initComparisonDiag();
   }
 
   async function pollComparison() {
@@ -1388,19 +1407,52 @@
     try {
       var result = await API.apiFetch('/purchases/' + currentPurchase.id + '/bids/' + selectedBidId + '/comparison');
       if (result.status === 'queued' || result.status === 'in_progress') {
-        $('comparison-results').innerHTML = '<div class="card"><div class="card-body"><div class="search-status"><div class="spinner"></div><div><strong>Сравнение в процессе...</strong></div></div></div></div>';
-        comparisonPollingTimer = setTimeout(pollComparison, 3000);
-      } else if (result.status === 'done') {
+        renderComparisonProgress(result.stages);
+        comparisonPollingTimer = setTimeout(pollComparison, 1000);
+      } else if (result.status === 'done' || result.status === 'completed') {
+        renderComparisonProgress(result.stages, true);
         renderComparison(result.rows || []);
         $('btn-compare').disabled = false;
+      } else if (result.status === 'failed') {
+        $('comparison-progress').innerHTML = '';
+        $('comparison-results').innerHTML = '<div class="card"><div class="card-body"><div class="info-block" style="background:var(--danger-bg);color:var(--danger)">Ошибка сравнения: ' + escapeHtml(result.note || 'неизвестная ошибка') + '</div></div></div>';
+        $('btn-compare').disabled = false;
       } else {
-        $('comparison-results').innerHTML = '<div class="card"><div class="card-body"><div class="info-block" style="background:var(--danger-bg);color:var(--danger)">Ошибка сравнения</div></div></div>';
+        $('comparison-progress').innerHTML = '';
+        $('comparison-results').innerHTML = '<div class="card"><div class="card-body"><div class="info-block" style="background:var(--danger-bg);color:var(--danger)">Статус: ' + escapeHtml(result.status || 'unknown') + '</div></div></div>';
         $('btn-compare').disabled = false;
       }
     } catch (e) {
       showError('Ошибка получения результатов сравнения: ' + e.message);
       $('btn-compare').disabled = false;
     }
+  }
+
+  function renderComparisonProgress(stages, done) {
+    var el = $('comparison-progress');
+    if (!el) return;
+    if (!stages || !stages.length) {
+      if (!done) el.innerHTML = '<div class="card"><div class="card-body"><div class="search-status"><div class="spinner"></div><div><strong>Сравнение в процессе...</strong></div></div></div></div>';
+      else el.innerHTML = '';
+      return;
+    }
+    var html = '<div class="card" style="margin-bottom:12px"><div class="card-body">';
+    html += '<div style="font-weight:600;margin-bottom:8px">Этапы сравнения</div>';
+    for (var i = 0; i < stages.length; i++) {
+      var s = stages[i];
+      var icon = '&#9675;';
+      var color = 'var(--text-secondary)';
+      if (s.status === 'done') { icon = '<span style="color:var(--success)">&#10003;</span>'; color = 'var(--text)'; }
+      else if (s.status === 'in_progress') { icon = '<div class="spinner" style="width:14px;height:14px;display:inline-block"></div>'; color = 'var(--accent)'; }
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;color:' + color + '">';
+      html += '<span style="width:20px;text-align:center">' + icon + '</span>';
+      html += '<span>' + escapeHtml(s.name) + '</span>';
+      if (s.detail) html += '<span style="color:var(--text-secondary);font-size:12px;margin-left:auto">' + escapeHtml(s.detail) + '</span>';
+      html += '</div>';
+    }
+    html += '</div></div>';
+    el.innerHTML = html;
+    if (done) setTimeout(function () { el.innerHTML = ''; }, 3000);
   }
 
   function renderComparison(rows) {
@@ -1458,6 +1510,45 @@
       html += '</div></div>';
     }
     $('comparison-results').innerHTML = html;
+  }
+
+  // ── Comparison Diagnostics ──────────────────────────────────────────
+
+  var _comparisonDiagData = null;
+
+  function initComparisonDiag() {
+    var btn = $('btn-comparison-diag');
+    var user = (typeof Auth !== 'undefined' && Auth.getUser) ? Auth.getUser() : null;
+    var isAdmin = !!(user && user.is_admin);
+    if (btn && !isAdmin) { btn.style.display = 'none'; return; }
+    if (btn) btn.addEventListener('click', function () {
+      openModal('modal-comparison-diag');
+      loadComparisonDiagnostics();
+    });
+    var refreshBtn = $('btn-comparison-diag-refresh');
+    if (refreshBtn) refreshBtn.addEventListener('click', loadComparisonDiagnostics);
+    var copyBtn = $('btn-comparison-diag-copy');
+    if (copyBtn) copyBtn.addEventListener('click', function () {
+      if (_comparisonDiagData) {
+        navigator.clipboard.writeText(JSON.stringify(_comparisonDiagData, null, 2))
+          .then(function () { showMessage('JSON скопирован'); })
+          .catch(function () { showError('Не удалось скопировать'); });
+      }
+    });
+  }
+
+  function loadComparisonDiagnostics() {
+    var el = $('comparison-diag-content');
+    if (!el || !currentPurchase) return;
+    el.textContent = 'Загрузка...';
+    API.apiFetch('/purchases/' + currentPurchase.id + '/comparison/diagnostics')
+      .then(function (data) {
+        _comparisonDiagData = data;
+        el.textContent = JSON.stringify(data, null, 2);
+      })
+      .catch(function (err) {
+        el.textContent = 'Ошибка: ' + err.message;
+      });
   }
 
   // ── National Regime ─────────────────────────────────────────────────

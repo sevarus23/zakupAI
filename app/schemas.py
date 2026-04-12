@@ -364,6 +364,7 @@ class LotComparisonResponse(BaseModel):
     bid_id: int
     created_at: datetime
     note: Optional[str] = None
+    stages: Optional[list] = None
     rows: List[LotComparisonRowRead] = Field(default_factory=list)
 
 

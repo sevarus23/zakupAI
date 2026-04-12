@@ -557,7 +557,21 @@ def _build_characteristic_rows(
     return rows
 
 
-def _build_lot_comparison_rows(session: Session, purchase_id: int, bid_id: int) -> Dict:
+def _build_lot_comparison_rows(session: Session, purchase_id: int, bid_id: int,
+                               progress_cb=None) -> Dict:
+    def _progress(stages):
+        if progress_cb:
+            progress_cb({"stages": stages, "note": ""})
+
+    stages = [
+        {"name": "Загрузка данных", "status": "in_progress", "detail": ""},
+        {"name": "Эмбеддинги лотов", "status": "pending", "detail": ""},
+        {"name": "Сопоставление лотов (LLM)", "status": "pending", "detail": ""},
+        {"name": "Сопоставление характеристик", "status": "pending", "detail": ""},
+        {"name": "Формирование результата", "status": "pending", "detail": ""},
+    ]
+    _progress(stages)
+
     purchase_lots = session.exec(select(Lot).where(Lot.purchase_id == purchase_id).order_by(Lot.id)).all()
     bid_lots = session.exec(select(BidLot).where(BidLot.bid_id == bid_id).order_by(BidLot.id)).all()
 
@@ -590,8 +604,12 @@ def _build_lot_comparison_rows(session: Session, purchase_id: int, bid_id: int) 
             }
         )
 
+    stages[0]["status"] = "done"
+    stages[0]["detail"] = f"ТЗ: {len(purchase_items)} лотов, КП: {len(bid_items)} лотов"
+    _progress(stages)
+
     if not purchase_items:
-        return {"rows": [], "note": "Лоты ТЗ не найдены"}
+        return {"rows": [], "note": "Лоты ТЗ не найдены", "stages": stages}
     if not bid_items:
         return {
             "rows": [
@@ -619,6 +637,10 @@ def _build_lot_comparison_rows(session: Session, purchase_id: int, bid_id: int) 
             "note": "Лоты КП не найдены",
         }
 
+    # Stage 2: Embeddings
+    stages[1]["status"] = "in_progress"
+    _progress(stages)
+
     client = _build_openrouter_client()
     all_texts = [_lot_to_text(item["name"], item["parameters"]) for item in purchase_items] + [
         _lot_to_text(item["name"], item["parameters"]) for item in bid_items
@@ -633,6 +655,12 @@ def _build_lot_comparison_rows(session: Session, purchase_id: int, bid_id: int) 
     purchase_vectors = vectors[: len(purchase_items)]
     bid_vectors = vectors[len(purchase_items) :]
 
+    stages[1]["status"] = "done"
+    stages[1]["detail"] = f"{len(all_texts)} векторов"
+    stages[2]["status"] = "in_progress"
+    _progress(stages)
+
+    # Stage 3: Lot matching (LLM)
     bid_by_id = {item["id"]: item for item in bid_items}
     rows = []
     matched_count = 0
@@ -653,6 +681,9 @@ def _build_lot_comparison_rows(session: Session, purchase_id: int, bid_id: int) 
         if matched_item:
             matched_count += 1
 
+        stages[2]["detail"] = f"{idx + 1} из {len(purchase_items)} лотов"
+        _progress(stages)
+
         rows.append(
             {
                 "lot_id": purchase_item["id"],
@@ -664,24 +695,48 @@ def _build_lot_comparison_rows(session: Session, purchase_id: int, bid_id: int) 
                 "bid_lot_parameters": matched_item["parameters"] if matched_item else [],
                 "confidence": confidence if matched_item else None,
                 "reason": reason or None,
-                "characteristic_rows": (
-                    _build_characteristic_rows(client, purchase_item["parameters"], matched_item["parameters"])
-                    if matched_item
-                    else [
-                        {
-                            "left_text": _param_to_text(param),
-                            "right_text": "",
-                            "status": "unmatched_tz",
-                        }
-                        for param in purchase_item["parameters"]
-                    ]
-                ),
+                "matched_item_ref": matched_item,  # temp ref for stage 4
             }
         )
+
+    stages[2]["status"] = "done"
+    stages[2]["detail"] = f"Сопоставлено {matched_count} из {len(purchase_items)}"
+    stages[3]["status"] = "in_progress"
+    _progress(stages)
+
+    # Stage 4: Characteristic matching
+    chars_done = 0
+    chars_total = sum(1 for r in rows if r.get("matched_item_ref"))
+    for row in rows:
+        matched_item = row.pop("matched_item_ref", None)
+        if matched_item:
+            row["characteristic_rows"] = _build_characteristic_rows(
+                client,
+                row["lot_parameters"],
+                matched_item["parameters"],
+            )
+            chars_done += 1
+            stages[3]["detail"] = f"{chars_done} из {chars_total} лотов"
+            _progress(stages)
+        else:
+            row["characteristic_rows"] = [
+                {
+                    "left_text": _param_to_text(param),
+                    "right_text": "",
+                    "status": "unmatched_tz",
+                }
+                for param in row["lot_parameters"]
+            ]
+
+    stages[3]["status"] = "done"
+    stages[4]["status"] = "done"
+    stages[4]["detail"] = f"{len(rows)} лотов"
+    _progress(stages)
 
     return {
         "rows": rows,
         "note": f"Сопоставлено лотов: {matched_count} из {len(purchase_items)}",
+        "stages": stages,
     }
 
 
@@ -696,14 +751,18 @@ def _process_lot_comparison_task(task: LLMTask) -> None:
     if not purchase_id or not bid_id:
         raise RuntimeError("lot_comparison task requires purchase_id and bid_id")
 
-    set_usage_context({"purchase_id": purchase_id, "task_id": task.id})
+    task_id = task.id
+    set_usage_context({"purchase_id": purchase_id, "task_id": task_id})
     try:
         with Session(engine) as session:
-            task_in_db = session.get(LLMTask, task.id)
+            task_in_db = session.get(LLMTask, task_id)
             if not task_in_db:
                 return
 
-            result = _build_lot_comparison_rows(session, purchase_id, bid_id)
+            result = _build_lot_comparison_rows(
+                session, purchase_id, bid_id,
+                progress_cb=lambda partial: _write_progress(task_id, partial),
+            )
             task_in_db.output_text = json.dumps(result, ensure_ascii=False)
             task_in_db.status = "completed"
             session.add(task_in_db)

@@ -263,6 +263,7 @@
               <h3>Сравнение ТЗ и коммерческих предложений</h3>
               <div class="flex-gap">
                 <button class="btn btn-primary btn-sm" id="btn-compare" disabled>Запустить сравнение</button>
+                <button class="btn btn-secondary" id="btn-comparison-diag" style="padding:4px 10px;font-size:12px">Диагностика</button>
               </div>
             </div>
             <div class="card-body">
@@ -278,12 +279,16 @@
                   <div class="icon">&#128196;</div>
                   <div class="label">Коммерческие предложения</div>
                   <div class="hint" id="comparison-kp-hint">КП не загружены</div>
-                  <div class="hint" style="color:var(--text-secondary);font-size:11px;">pdf, xlsx, doc, docx</div>
-                  <input type="file" id="inp-comparison-kp-file" accept=".pdf,.xlsx,.doc,.docx" style="display:none">
+                  <div class="hint" style="color:var(--text-secondary);font-size:11px;">pdf, xlsx, doc, docx (можно несколько)</div>
+                  <input type="file" id="inp-comparison-kp-file" accept=".pdf,.xlsx,.doc,.docx" multiple style="display:none">
                 </div>
               </div>
+              <div id="comparison-upload-status"></div>
             </div>
           </div>
+
+          <!-- Progress stages (shown during comparison) -->
+          <div id="comparison-progress"></div>
 
           <!-- Supplier selector bar -->
           <div class="comp-suppliers-bar">
@@ -524,6 +529,23 @@
           <button class="btn btn-secondary" id="btn-regime-diag-copy">Скопировать JSON</button>
         </div>
         <pre id="regime-diag-content" style="background:#0f172a;color:#e2e8f0;padding:16px;border-radius:8px;overflow:auto;max-height:60vh;font-size:12px;line-height:1.5;font-family:'SF Mono',Monaco,Consolas,monospace;white-space:pre-wrap;word-break:break-word">Загрузка...</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Comparison diagnostics modal -->
+  <div class="modal-overlay" id="modal-comparison-diag">
+    <div class="modal" style="max-width:900px">
+      <div class="modal-header">
+        <h3>Диагностика Сравнение</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <button class="btn btn-secondary" id="btn-comparison-diag-refresh">Обновить</button>
+          <button class="btn btn-secondary" id="btn-comparison-diag-copy">Скопировать JSON</button>
+        </div>
+        <pre id="comparison-diag-content" style="background:#0f172a;color:#e2e8f0;padding:16px;border-radius:8px;overflow:auto;max-height:60vh;font-size:12px;line-height:1.5;font-family:'SF Mono',Monaco,Consolas,monospace;white-space:pre-wrap;word-break:break-word">Загрузка...</pre>
       </div>
     </div>
   </div>

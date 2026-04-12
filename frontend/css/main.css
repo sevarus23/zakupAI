@@ -817,6 +817,19 @@ body {
   grid-column: 1 / -1;
 }
 
+/* Inline upload status */
+.upload-inline-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--accent-light);
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
 /* ===== CHAT / CORRESPONDENCE ===== */
 .chat-thread {
   max-height: 400px;

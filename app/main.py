@@ -421,12 +421,16 @@ def _serialize_lot_comparison(task: LLMTask, bid_id: int) -> LotComparisonRespon
             )
         )
 
+    # Map DB status to frontend-compatible status
+    fe_status = "done" if task.status == "completed" else task.status
+
     return LotComparisonResponse(
         task_id=task.id or 0,
-        status=task.status,
+        status=fe_status,
         bid_id=bid_id,
         created_at=task.created_at,
         note=str(payload.get("note")) if payload.get("note") is not None else None,
+        stages=payload.get("stages"),
         rows=rows,
     )
 
@@ -1025,6 +1029,66 @@ def get_bid_lot_comparison(
     if not task:
         return None
     return _serialize_lot_comparison(task, bid_id)
+
+
+@app.get("/purchases/{purchase_id}/comparison/diagnostics")
+def get_comparison_diagnostics(
+    purchase_id: int,
+    session=Depends(get_session),
+    current_user: User = Depends(auth.get_current_user),
+):
+    """Return diagnostic info for M3 comparison tasks (admin only)."""
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+
+    purchase = session.get(Purchase, purchase_id)
+    if not purchase or purchase.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase not found")
+
+    # All bids
+    bids = session.exec(select(Bid).where(Bid.purchase_id == purchase_id)).all()
+    bid_info = []
+    for bid in bids:
+        lot_count = len(session.exec(select(BidLot).where(BidLot.bid_id == bid.id)).all())
+        bid_info.append({
+            "bid_id": bid.id,
+            "supplier_name": bid.supplier_name,
+            "lot_count": lot_count,
+            "created_at": str(bid.created_at),
+        })
+
+    # TZ lots
+    lots = session.exec(select(Lot).where(Lot.purchase_id == purchase_id)).all()
+    tz_info = {"lot_count": len(lots), "lots": [{"id": l.id, "name": l.name} for l in lots[:20]]}
+
+    # Comparison tasks (latest 10)
+    tasks = session.exec(
+        select(LLMTask)
+        .where(LLMTask.purchase_id == purchase_id, LLMTask.task_type == "lot_comparison")
+        .order_by(LLMTask.created_at.desc())
+    ).all()
+
+    tasks_info = []
+    for t in tasks[:10]:
+        payload = _safe_json_dict(t.output_text)
+        row_count = len(payload.get("rows", [])) if isinstance(payload.get("rows"), list) else 0
+        tasks_info.append({
+            "task_id": t.id,
+            "bid_id": t.bid_id,
+            "status": t.status,
+            "row_count": row_count,
+            "note": payload.get("note"),
+            "stages": payload.get("stages"),
+            "created_at": str(t.created_at),
+            "updated_at": str(t.updated_at) if t.updated_at else None,
+        })
+
+    return {
+        "purchase_id": purchase_id,
+        "tz": tz_info,
+        "bids": bid_info,
+        "comparison_tasks": tasks_info,
+    }
 
 
 @app.post("/purchases/{purchase_id}/suppliers", response_model=SupplierRead, status_code=status.HTTP_201_CREATED)
