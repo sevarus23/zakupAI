@@ -1505,6 +1505,8 @@
       .catch(function (err) { showError(err.message); });
   }
 
+  var _regimeBidsPollingTimer = null;
+
   function renderRegimeBids() {
     var container = $('regime-bids-list');
     if (!container) return;
@@ -1513,8 +1515,8 @@
         '<div class="upload-zone" id="regime-kp-zone">' +
         '<div class="icon">&#128196;</div>' +
         '<div class="label">Загрузить КП для проверки</div>' +
-        '<div class="hint" id="regime-kp-hint">pdf, xlsx, doc, docx</div>' +
-        '<input type="file" id="inp-regime-kp-file" accept=".pdf,.xlsx,.doc,.docx" style="display:none">' +
+        '<div class="hint" id="regime-kp-hint">pdf, xlsx, doc, docx — можно несколько файлов</div>' +
+        '<input type="file" id="inp-regime-kp-file" accept=".pdf,.xlsx,.doc,.docx" multiple style="display:none">' +
         '</div>';
       _bindRegimeUpload();
       return;
@@ -1522,14 +1524,27 @@
     var html = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text-secondary)">КП для проверки (' + currentBids.length + '):</div>';
     html += '<div class="proposals-grid">';
     var totalLots = 0;
+    var hasExtracting = false;
     for (var i = 0; i < currentBids.length; i++) {
       var bid = currentBids[i];
       var lotCount = bid.lots ? bid.lots.length : 0;
       totalLots += lotCount;
-      var lotLabel = lotCount + ' позици' + (lotCount === 1 ? 'я' : lotCount < 5 ? 'и' : 'й');
-      var statusIcon = lotCount > 0
-        ? '<span style="color:var(--success)">&#10003;</span>'
-        : '<span style="color:var(--danger)">&#10007;</span>';
+      var statusIcon, lotLabel;
+      if (lotCount > 0) {
+        statusIcon = '<span style="color:var(--success)">&#10003;</span>';
+        lotLabel = lotCount + ' позици' + (lotCount === 1 ? 'я' : lotCount < 5 ? 'и' : 'й');
+      } else {
+        // 0 lots — either extracting or failed. Check age: if < 3 min, assume extracting
+        var ageMs = Date.now() - new Date(bid.created_at).getTime();
+        if (ageMs < 3 * 60 * 1000) {
+          statusIcon = '<span class="spinner" style="width:12px;height:12px;border-width:1.5px;display:inline-block;vertical-align:middle"></span>';
+          lotLabel = 'Распознавание позиций...';
+          hasExtracting = true;
+        } else {
+          statusIcon = '<span style="color:var(--danger)">&#10007;</span>';
+          lotLabel = 'Нет позиций';
+        }
+      }
       html += '<div class="proposal-card" style="cursor:default">' +
         '<div class="proposal-supplier">' + statusIcon + ' ' + escapeHtml(bid.supplier_name || 'Поставщик') + '</div>' +
         '<div class="proposal-date">' + formatDate(bid.created_at) + '</div>' +
@@ -1538,16 +1553,44 @@
     }
     // Upload zone card
     html += '<div class="proposal-add" id="regime-kp-upload-card"><div class="plus">+</div><div>Загрузить КП</div><div style="font-size:11px">pdf, xlsx, doc, docx</div>' +
-      '<input type="file" id="inp-regime-kp-file" accept=".pdf,.xlsx,.doc,.docx" style="display:none">' +
+      '<input type="file" id="inp-regime-kp-file" accept=".pdf,.xlsx,.doc,.docx" multiple style="display:none">' +
       '</div>';
     html += '</div>';
     if (totalLots > 0) {
       html += '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Всего ' + totalLots + ' товар' + (totalLots === 1 ? '' : totalLots < 5 ? 'а' : 'ов') + ' будет проверено</div>';
-    } else {
+    } else if (!hasExtracting) {
       html += '<div style="font-size:12px;color:var(--danger);margin-top:4px">Нет распознанных позиций. Сначала запустите распознавание в «Письма и КП».</div>';
+    }
+    if (hasExtracting) {
+      html += '<div style="font-size:12px;color:var(--accent);margin-top:4px">Идёт распознавание позиций из КП... Подождите.</div>';
     }
     container.innerHTML = html;
     _bindRegimeUpload();
+
+    // Auto-poll bids while extraction is in progress
+    if (hasExtracting) {
+      _startRegimeBidsPolling();
+    } else {
+      _stopRegimeBidsPolling();
+    }
+  }
+
+  function _startRegimeBidsPolling() {
+    if (_regimeBidsPollingTimer) return; // already polling
+    _regimeBidsPollingTimer = setInterval(async function () {
+      if (!currentPurchase) return;
+      try {
+        currentBids = await API.apiFetch('/purchases/' + currentPurchase.id + '/bids');
+        renderRegimeBids();
+      } catch (_) {}
+    }, 4000);
+  }
+
+  function _stopRegimeBidsPolling() {
+    if (_regimeBidsPollingTimer) {
+      clearInterval(_regimeBidsPollingTimer);
+      _regimeBidsPollingTimer = null;
+    }
   }
 
   function _bindRegimeUpload() {
@@ -1562,34 +1605,47 @@
   }
 
   async function _handleRegimeKpUpload() {
-    var file = this.files[0];
-    if (!file) return;
+    var files = this.files;
+    if (!files || files.length === 0) return;
     if (!currentPurchase) {
       showError('Сначала выберите или создайте закупку');
       this.value = '';
       return;
     }
-    try {
-      showMessage('Конвертация КП...');
-      var converted = await API.convertTechTaskFile(file);
-      if (converted && converted.markdown) {
-        var supplierName = file.name.replace(/\.[^.]+$/, '');
-        await API.apiFetch('/purchases/' + currentPurchase.id + '/bids', {
-          method: 'POST',
-          body: {
-            bid_text: converted.markdown,
-            supplier_name: supplierName,
-          },
-        });
-        trackFile(currentPurchase.id, file.name, 'regime_kp');
-        showMessage('КП загружено');
-        await loadBids();
-        renderRegimeBids();
+    var total = files.length;
+    var uploaded = 0;
+    var errors = [];
+    showMessage('Загрузка ' + total + ' КП...');
+
+    for (var i = 0; i < total; i++) {
+      var file = files[i];
+      try {
+        showMessage('Конвертация ' + (i + 1) + '/' + total + ': ' + file.name);
+        var converted = await API.convertTechTaskFile(file);
+        if (converted && converted.markdown) {
+          var supplierName = file.name.replace(/\.[^.]+$/, '');
+          await API.apiFetch('/purchases/' + currentPurchase.id + '/bids', {
+            method: 'POST',
+            body: {
+              bid_text: converted.markdown,
+              supplier_name: supplierName,
+            },
+          });
+          trackFile(currentPurchase.id, file.name, 'regime_kp');
+          uploaded++;
+        }
+      } catch (e) {
+        errors.push(file.name + ': ' + e.message);
       }
-    } catch (e) {
-      showError('Ошибка загрузки КП: ' + e.message);
     }
     this.value = '';
+    await loadBids();
+    renderRegimeBids();
+    if (errors.length > 0) {
+      showError('Ошибки: ' + errors.join('; '));
+    } else {
+      showMessage('Загружено ' + uploaded + ' КП. Распознавание позиций...');
+    }
   }
 
   function loadRegimeCheck() {
@@ -1892,6 +1948,7 @@
     if (regimePollingTimer) { clearTimeout(regimePollingTimer); regimePollingTimer = null; }
     stopSearchTimer();
     stopRegimeTimer();
+    _stopRegimeBidsPolling();
   }
 
   // ── Init ───────────────────────────────────────────────────────────
