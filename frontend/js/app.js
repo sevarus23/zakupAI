@@ -1692,7 +1692,8 @@
           renderRegimeResults(data);
         }
       })
-      .catch(function () {
+      .catch(function (err) {
+        console.error('[regime] loadRegimeCheck failed:', err);
         $('regime-results').innerHTML = '<div class="empty-state">Загрузите КП или выберите закупку с загруженными предложениями</div>';
       });
   }
@@ -1708,15 +1709,21 @@
           stopRegimeTimer();
           // Load results immediately, pass progress for summary
           API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check')
-            .then(function (data) { renderRegimeResults(data, progress); })
-            .catch(function () { renderRegimeResults(null, progress); });
+            .then(function (data) {
+              console.log('[regime] check data loaded, items:', data && data.items ? data.items.length : 'none');
+              renderRegimeResults(data, progress);
+            })
+            .catch(function (err) {
+              console.error('[regime] failed to load check results:', err);
+              renderRegimeError('Ошибка загрузки результатов: ' + (err.message || err));
+            });
         } else if (progress && progress.status === 'error') {
           renderRegimeError(progress.message);
         } else {
           _scheduleRegimePoll();
         }
       })
-      .catch(function () { _scheduleRegimePoll(); });
+      .catch(function (err) { console.error('[regime] poll error:', err); _scheduleRegimePoll(); });
   }
 
   function _scheduleRegimePoll() {

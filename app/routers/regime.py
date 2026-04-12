@@ -181,10 +181,7 @@ def start_regime_check(
     return check
 
 
-@router.get(
-    "/purchases/{purchase_id}/check",
-    response_model=RegimeCheckOut,
-)
+@router.get("/purchases/{purchase_id}/check")
 def get_regime_check(
     purchase_id: int,
     session=Depends(get_session),
@@ -200,9 +197,45 @@ def get_regime_check(
         .where(RegimeCheckItem.check_id == check.id)
     )
     items = session.exec(items_stmt).all()
-    check.items = items  # type: ignore[attr-defined]
 
-    return check
+    # Serialize manually to avoid Pydantic validation issues
+    items_out = []
+    for item in items:
+        items_out.append({
+            "id": item.id,
+            "check_id": item.check_id,
+            "source_bid_id": getattr(item, "source_bid_id", None),
+            "source_supplier": getattr(item, "source_supplier", None),
+            "product_name": item.product_name,
+            "registry_number": item.registry_number,
+            "okpd2_code": item.okpd2_code,
+            "supplier_characteristics": item.supplier_characteristics,
+            "registry_status": item.registry_status,
+            "registry_actual": item.registry_actual,
+            "registry_cert_end_date": item.registry_cert_end_date,
+            "registry_raw_url": item.registry_raw_url,
+            "localization_status": item.localization_status,
+            "localization_actual_score": item.localization_actual_score,
+            "localization_required_score": item.localization_required_score,
+            "gisp_status": item.gisp_status,
+            "gisp_characteristics": item.gisp_characteristics,
+            "gisp_comparison": item.gisp_comparison,
+            "gisp_url": item.gisp_url,
+            "overall_status": item.overall_status,
+        })
+
+    return {
+        "id": check.id,
+        "purchase_id": check.purchase_id,
+        "status": check.status,
+        "filename": check.filename,
+        "ok_count": check.ok_count or 0,
+        "warning_count": check.warning_count or 0,
+        "error_count": check.error_count or 0,
+        "not_found_count": check.not_found_count or 0,
+        "created_at": check.created_at.isoformat() if check.created_at else None,
+        "items": items_out,
+    }
 
 
 @router.get(
