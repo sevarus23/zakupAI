@@ -41,8 +41,9 @@ def check_localization(okpd2_code: Optional[str], actual_score: Optional[float])
     required = None
     for length in (len(code), 9, 7, 5, 2):
         key = code[:length]
-        if key in scores:
-            required = scores[key]
+        val = scores.get(key)
+        if isinstance(val, (int, float)):
+            required = val
             break
 
     if required is None:
