@@ -1489,32 +1489,44 @@
       var isDone = entry.status === 'done';
       var isQueued = entry.status === 'queued' || entry.status === 'pending';
       var isFailed = entry.status === 'failed';
+      // First non-done/non-failed bid is "next" — show it as waiting with spinner
+      var isNext = false;
+      if (isQueued) {
+        var hasActiveAbove = false;
+        for (var p = 0; p < b; p++) {
+          if (_comparisonBidQueue[p].status === 'in_progress' || _comparisonBidQueue[p].status === 'queued' || _comparisonBidQueue[p].status === 'pending') { hasActiveAbove = true; break; }
+        }
+        if (!hasActiveAbove) isNext = true;
+      }
 
       var bidIcon = '&#9675;';
       if (isDone) bidIcon = '<span style="color:var(--success)">&#10003;</span>';
-      else if (isActive) bidIcon = '<div class="spinner" style="width:14px;height:14px;display:inline-block"></div>';
+      else if (isActive || isNext) bidIcon = '<div class="spinner" style="width:14px;height:14px;display:inline-block"></div>';
       else if (isFailed) bidIcon = '<span style="color:var(--danger)">&#10007;</span>';
 
       var bidTimer = '';
       if (isDone && entry.elapsed) bidTimer = _fmtElapsed(entry.elapsed);
       else if (isActive && entry.startTime) bidTimer = _fmtElapsed(now - entry.startTime);
 
-      var expanded = entry.expanded;
+      var expanded = entry.expanded || isNext;
       var arrowStyle = 'cursor:pointer;transition:transform .2s;' + (expanded ? '' : 'transform:rotate(-90deg);');
 
       html += '<div style="margin-bottom:6px;border-bottom:1px solid var(--border);padding-bottom:6px">';
       html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer" onclick="var s=this.nextElementSibling;if(s){var show=s.style.display===\'none\';s.style.display=show?\'block\':\'none\';this.querySelector(\'.comp-prog-arrow\').style.transform=show?\'\':\' rotate(-90deg)\'}">';
       html += '<span class="comp-prog-arrow" style="font-size:10px;color:var(--text-secondary);' + arrowStyle + '">&#9660;</span>';
       html += '<span style="width:20px;text-align:center">' + bidIcon + '</span>';
-      html += '<span style="font-weight:500;color:' + (isActive ? 'var(--success)' : isDone ? 'var(--text)' : isFailed ? 'var(--danger)' : 'var(--text-secondary)') + '">' + escapeHtml(entry.name) + '</span>';
-      if (isQueued) html += '<span style="font-size:12px;color:var(--text-secondary);margin-left:4px">в очереди</span>';
+      html += '<span style="font-weight:500;color:' + ((isActive || isNext) ? 'var(--success)' : isDone ? 'var(--text)' : isFailed ? 'var(--danger)' : 'var(--text-secondary)') + '">' + escapeHtml(entry.name) + '</span>';
+      if (isQueued && !isNext) html += '<span style="font-size:12px;color:var(--text-secondary);margin-left:4px">в очереди</span>';
+      else if (isNext) html += '<span style="font-size:12px;color:var(--text-secondary);margin-left:4px">ожидание воркера...</span>';
       if (bidTimer) html += '<span style="font-size:12px;color:var(--text-secondary);margin-left:auto;font-variant-numeric:tabular-nums">' + bidTimer + '</span>';
       html += '</div>';
 
-      if (entry.stages && !isQueued) {
+      if (entry.stages && (!isQueued || isNext)) {
         html += '<div data-comp-bid-stages="' + b + '" style="' + (expanded ? '' : 'display:none') + '">';
         for (var si = 0; si < entry.stages.length; si++) {
           var s = entry.stages[si];
+          // For "next" bid waiting for worker, show first stage as in_progress
+          if (isNext && si === 0 && s.status === 'pending') s = {name: s.name, status: 'in_progress', detail: 'ожидание'};
           var sIcon = '&#9675;', sColor = 'var(--text-secondary)';
           if (s.status === 'done') { sIcon = '<span style="color:var(--success)">&#10003;</span>'; sColor = 'var(--text)'; }
           else if (s.status === 'in_progress') { sIcon = '<div class="spinner" style="width:12px;height:12px;display:inline-block;border-color:var(--success);border-top-color:transparent"></div>'; sColor = 'var(--success)'; }
