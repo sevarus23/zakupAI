@@ -753,15 +753,18 @@ body {
 
 /* GISP comparison details */
 .gisp-toggle {
-  background: none;
-  border: none;
+  background: var(--accent-light);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--accent);
-  padding: 0 4px;
+  padding: 2px 8px;
   line-height: 1;
+  margin-left: 6px;
+  transition: background 0.15s;
 }
-.gisp-toggle:hover { color: var(--text); }
+.gisp-toggle:hover { background: var(--accent); color: #fff; }
 
 .gisp-details {
   display: none;
