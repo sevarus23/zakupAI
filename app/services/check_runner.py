@@ -47,8 +47,10 @@ def _update_stage(check_id: int, index: int, status: str, detail: str = "") -> N
 
 # Stage indices (constants for readability)
 STAGE_PARSE = 0
-STAGE_CHECK_ITEMS = 1
-STAGE_REPORT = 2
+STAGE_REGISTRY = 1
+STAGE_LOCALIZATION = 2
+STAGE_GISP = 3
+STAGE_REPORT = 4
 
 
 def get_progress(check_id: int) -> dict:
@@ -75,9 +77,11 @@ async def run_check(check_id: int, db: Session) -> None:
         "total": 0, "processed": 0, "status": "processing",
         "message": "Парсинг файла...",
         "stages": [
-            _make_stage("Парсинг файла", "in_progress"),
-            _make_stage("Проверка товаров"),
-            _make_stage("Формирование отчёта"),
+            _make_stage("Сбор позиций из КП", "in_progress"),
+            _make_stage("Проверка реестра ПП №719"),
+            _make_stage("Проверка баллов локализации"),
+            _make_stage("Сравнение характеристик (ГИСП)"),
+            _make_stage("Формирование отчёта PDF"),
         ],
     }
 
@@ -124,9 +128,11 @@ async def run_check_from_items(
         "status": "processing",
         "message": "Проверка товаров...",
         "stages": [
-            _make_stage("Парсинг файла", "skipped", "Из существующего КП"),
-            _make_stage("Проверка товаров", "in_progress", f"0 из {len(items)}"),
-            _make_stage("Формирование отчёта"),
+            _make_stage("Сбор позиций из КП", "done", f"{len(items)} позиций"),
+            _make_stage("Проверка реестра ПП №719", "in_progress"),
+            _make_stage("Проверка баллов локализации"),
+            _make_stage("Сравнение характеристик (ГИСП)"),
+            _make_stage("Формирование отчёта PDF"),
         ],
     }
 
@@ -157,16 +163,20 @@ async def _process_items_into_check(
     p = _progress[check_id]
     p["total"] = len(items)
     p["processed"] = 0
-    p["message"] = "Проверка товаров..."
-    _update_stage(check_id, STAGE_CHECK_ITEMS, "in_progress", f"0 из {len(items)}")
+    p["message"] = "Проверка реестра..."
+    _update_stage(check_id, STAGE_REGISTRY, "in_progress", f"0 из {len(items)}")
 
     ok = warning = error = not_found = 0
     processed_count = 0
+    registry_done = 0
+    loc_done = 0
+    gisp_done = 0
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
     lock = asyncio.Lock()
+    n = len(items)
 
     async def check_single_item(pos: int, raw_item: dict, http_client: httpx.AsyncClient):
-        nonlocal processed_count
+        nonlocal processed_count, registry_done, loc_done, gisp_done
         async with semaphore:
             item_start = time.monotonic()
 
@@ -183,7 +193,7 @@ async def _process_items_into_check(
             registry_number = raw_item.get("registry_number") or ""
             supplier_chars = raw_item.get("characteristics", [])
 
-            # 2a. Registry check (local DB, synchronous)
+            # 2a. Registry check
             t0 = time.monotonic()
             registry_db = _get_session()
             try:
@@ -197,6 +207,13 @@ async def _process_items_into_check(
             check_item.registry_cert_end_date = reg_result.cert_end_date
             check_item.registry_raw_url = reg_result.url
 
+            async with lock:
+                registry_done += 1
+                _update_stage(check_id, STAGE_REGISTRY, "in_progress", f"{registry_done} из {n}")
+                if registry_done == n:
+                    _update_stage(check_id, STAGE_REGISTRY, "done", f"{n} из {n}")
+                _update_stage(check_id, STAGE_LOCALIZATION, "in_progress", f"{loc_done} из {n}")
+
             okpd2_code = raw_item.get("okpd2_code") or reg_result.okpd2_from_registry
 
             # 2b. Localization check
@@ -207,6 +224,13 @@ async def _process_items_into_check(
                 check_item.localization_required_score = loc_result.required_score
             else:
                 check_item.localization_status = "skipped"
+
+            async with lock:
+                loc_done += 1
+                _update_stage(check_id, STAGE_LOCALIZATION, "in_progress", f"{loc_done} из {n}")
+                if loc_done == n:
+                    _update_stage(check_id, STAGE_LOCALIZATION, "done", f"{n} из {n}")
+                _update_stage(check_id, STAGE_GISP, "in_progress", f"{gisp_done} из {n}")
 
             # 2c. GISP check
             t_gisp = 0.0
@@ -230,16 +254,19 @@ async def _process_items_into_check(
 
             item_total = round(time.monotonic() - item_start, 1)
             logger.info(
-                f"[check={check_id}] Item {pos}/{len(items)}: "
+                f"[check={check_id}] Item {pos}/{n}: "
                 f"total={item_total}s (registry={t_registry}s, gisp={t_gisp}s)"
             )
 
             # Update progress (thread-safe)
             async with lock:
                 processed_count += 1
+                gisp_done += 1
                 _progress[check_id]["processed"] = processed_count
-                _progress[check_id]["message"] = f"Проверено {processed_count} из {len(items)}"
-                _update_stage(check_id, STAGE_CHECK_ITEMS, "in_progress", f"{processed_count} из {len(items)}")
+                _progress[check_id]["message"] = f"Проверено {processed_count} из {n}"
+                _update_stage(check_id, STAGE_GISP, "in_progress", f"{gisp_done} из {n}")
+                if gisp_done == n:
+                    _update_stage(check_id, STAGE_GISP, "done", f"{n} из {n}")
 
             return pos, check_item
 
@@ -273,7 +300,6 @@ async def _process_items_into_check(
     db.commit()
 
     # Step 3: Generate PDF report
-    _update_stage(check_id, STAGE_CHECK_ITEMS, "done", f"{len(items)} из {len(items)}")
     _update_stage(check_id, STAGE_REPORT, "in_progress")
     _progress[check_id]["message"] = "Формирование отчёта..."
     t0 = time.monotonic()

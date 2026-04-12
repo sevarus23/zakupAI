@@ -1493,16 +1493,32 @@
     if (!currentPurchase) return;
     regimeStartTime = Date.now();
     startRegimeTimer();
-    $('regime-results').innerHTML = '<div class="search-status"><div class="spinner"></div><span>Запуск проверки национального режима...</span></div>';
+    // Show initial stages immediately — don't wait for poll
+    renderRegimeProgress({
+      status: 'processing', total: 0, processed: 0, message: '',
+      filename: '',
+      stages: [
+        {name: 'Сбор позиций из КП', status: 'in_progress', detail: ''},
+        {name: 'Проверка реестра ПП №719', status: 'pending', detail: ''},
+        {name: 'Проверка баллов локализации', status: 'pending', detail: ''},
+        {name: 'Сравнение характеристик (ГИСП)', status: 'pending', detail: ''},
+        {name: 'Формирование отчёта PDF', status: 'pending', detail: ''},
+      ],
+    });
     API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check', { method: 'POST' })
       .then(function (data) {
         if (data && (data.status === 'pending' || data.status === 'processing')) {
-          pollRegimeCheck();
+          // Immediately poll — don't wait
+          _pollRegimeCheckNow();
         } else {
           renderRegimeResults(data);
         }
       })
-      .catch(function (err) { showError(err.message); });
+      .catch(function (err) {
+        stopRegimeTimer();
+        regimeStartTime = null;
+        showError(err.message);
+      });
   }
 
   var _regimeBidsPollingTimer = null;
@@ -1671,49 +1687,39 @@
       });
   }
 
-  function pollRegimeCheck() {
-    if (regimePollingTimer) clearTimeout(regimePollingTimer);
-    regimePollingTimer = setTimeout(function () {
-      if (!currentPurchase) return;
-      API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check/progress')
-        .then(function (progress) {
-          if (progress && (progress.status === 'pending' || progress.status === 'processing')) {
-            renderRegimeProgress(progress);
-            pollRegimeCheck();
-          } else if (progress && progress.status === 'done') {
-            // Load full results with items
+  function _pollRegimeCheckNow() {
+    if (!currentPurchase) return;
+    API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check/progress')
+      .then(function (progress) {
+        if (progress && (progress.status === 'pending' || progress.status === 'processing')) {
+          renderRegimeProgress(progress);
+          _scheduleRegimePoll();
+        } else if (progress && progress.status === 'done') {
+          // Show completed stages briefly, then load results
+          renderRegimeProgress(progress);
+          stopRegimeTimer();
+          setTimeout(function () {
             API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check')
               .then(function (data) { renderRegimeResults(data); })
               .catch(function () { renderRegimeResults(null); });
-          } else if (progress && progress.status === 'error') {
-            renderRegimeError(progress.message);
-          } else {
-            // Fallback: load check data directly
-            API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check')
-              .then(function (data) {
-                if (data && (data.status === 'pending' || data.status === 'processing')) {
-                  renderRegimeProgress({status: 'processing', stages: [], total: 0, processed: 0, message: ''});
-                  pollRegimeCheck();
-                } else {
-                  renderRegimeResults(data);
-                }
-              })
-              .catch(function () {});
-          }
-        })
-        .catch(function () {
-          // Progress endpoint unavailable — fall back to old polling
-          API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check')
-            .then(function (data) {
-              if (data && (data.status === 'pending' || data.status === 'processing')) {
-                pollRegimeCheck();
-              } else {
-                renderRegimeResults(data);
-              }
-            })
-            .catch(function () {});
-        });
-    }, 2000);
+          }, 2000);
+        } else if (progress && progress.status === 'error') {
+          renderRegimeError(progress.message);
+        } else {
+          _scheduleRegimePoll();
+        }
+      })
+      .catch(function () { _scheduleRegimePoll(); });
+  }
+
+  function _scheduleRegimePoll() {
+    if (regimePollingTimer) clearTimeout(regimePollingTimer);
+    regimePollingTimer = setTimeout(_pollRegimeCheckNow, 500);
+  }
+
+  // Backward compat: loadRegimeCheck still calls this
+  function pollRegimeCheck() {
+    _pollRegimeCheckNow();
   }
 
   function renderRegimeProgress(progress) {
