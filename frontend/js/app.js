@@ -1470,6 +1470,7 @@
     var btnRefresh = $('btn-regime-refresh');
     if (btnCheck) btnCheck.addEventListener('click', startRegimeCheck);
     if (btnRefresh) btnRefresh.addEventListener('click', loadRegimeCheck);
+    initRegimeDiag();
 
     // ── Standalone KP upload on Regime tab ──
     $('regime-kp-zone').addEventListener('click', function () {
@@ -1616,11 +1617,16 @@
     var elapsed = regimeStartTime ? formatElapsed(Date.now() - regimeStartTime) : '';
 
     var html = '<div class="search-status" style="flex-direction:column;align-items:stretch">';
+    var filename = progress.filename || '';
+
     html += '<div style="display:flex;align-items:center;gap:12px">';
     html += '<div class="spinner"></div>';
     html += '<div><strong>Проверка национального режима...</strong></div>';
     if (elapsed) html += '<div id="regime-elapsed" style="margin-left:auto;font-size:13px;color:var(--text-secondary)">' + elapsed + '</div>';
     html += '</div>';
+    if (filename) {
+      html += '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">' + escapeHtml(filename) + '</div>';
+    }
 
     // Stages with checkmarks
     if (stages.length > 0) {
@@ -1740,6 +1746,90 @@
     else if (status === 'warning' || status === 'wording') { cls = 'regime-check regime-unknown'; icon = '⚠'; }
     else if (status === 'not_found' || status === 'okpd_not_found' || status === 'score_missing') { cls = 'regime-check regime-unknown'; icon = '—'; }
     return '<div class="' + cls + '"><div class="regime-check-label">' + icon + ' ' + escapeHtml(label) + '</div><div class="regime-check-value">' + (detail || '') + '</div></div>';
+  }
+
+  // ── Regime Diagnostics ─────────────────────────────────────────────
+
+  var _regimeDiagData = null;
+
+  function initRegimeDiag() {
+    var btn = $('btn-regime-diag');
+    var user = (typeof Auth !== 'undefined' && Auth.getUser) ? Auth.getUser() : null;
+    var isAdmin = !!(user && user.is_admin);
+    if (btn && !isAdmin) {
+      btn.style.display = 'none';
+      return;
+    }
+    if (btn) btn.addEventListener('click', function () {
+      openModal('modal-regime-diag');
+      loadRegimeDiagnostics();
+    });
+    var refreshBtn = $('btn-regime-diag-refresh');
+    if (refreshBtn) refreshBtn.addEventListener('click', loadRegimeDiagnostics);
+    var copyBtn = $('btn-regime-diag-copy');
+    if (copyBtn) copyBtn.addEventListener('click', function () {
+      if (_regimeDiagData) {
+        navigator.clipboard.writeText(JSON.stringify(_regimeDiagData, null, 2))
+          .then(function () { showMessage('JSON скопирован'); })
+          .catch(function () { showError('Не удалось скопировать'); });
+      }
+    });
+  }
+
+  function loadRegimeDiagnostics() {
+    var el = $('regime-diag-content');
+    if (!el || !currentPurchase) return;
+    el.textContent = 'Загрузка...';
+    API.apiFetch('/regime/purchases/' + currentPurchase.id + '/check/diagnostics')
+      .then(function (data) {
+        _regimeDiagData = data;
+        el.textContent = _formatRegimeDiag(data);
+      })
+      .catch(function (err) {
+        el.textContent = 'Ошибка: ' + err.message;
+      });
+  }
+
+  function _formatRegimeDiag(d) {
+    var out = '';
+    out += '=== КП (Bids) ===\n';
+    if (d.bids && d.bids.length) {
+      for (var i = 0; i < d.bids.length; i++) {
+        var b = d.bids[i];
+        out += '  #' + b.bid_id + ' ' + (b.supplier_name || '(без имени)') + ' -> ' + b.lot_count + ' лотов (' + b.created_at + ')\n';
+      }
+    } else {
+      out += '  (нет КП)\n';
+    }
+
+    out += '\n=== Проверки Нацрежим ===\n';
+    if (d.checks && d.checks.length) {
+      for (var j = 0; j < d.checks.length; j++) {
+        var c = d.checks[j];
+        out += '\n  --- check #' + c.check_id + ' [' + c.status + '] ---\n';
+        if (c.filename) out += '  Источник: ' + c.filename + '\n';
+        out += '  Результаты в БД: ' + c.items_in_db + ' позиций\n';
+        out += '  ok=' + (c.ok || 0) + ' warning=' + (c.warning || 0) + ' error=' + (c.error || 0) + ' not_found=' + (c.not_found || 0) + '\n';
+        out += '  Создан: ' + c.created_at + '\n';
+        if (c.progress && c.progress.stages && c.progress.stages.length) {
+          out += '  Этапы:\n';
+          for (var k = 0; k < c.progress.stages.length; k++) {
+            var s = c.progress.stages[k];
+            var icon = s.status === 'done' ? '[OK]' : s.status === 'in_progress' ? '[..] ' : s.status === 'skipped' ? '[--]' : '[  ]';
+            out += '    ' + icon + ' ' + s.name + (s.detail ? ' -> ' + s.detail : '') + '\n';
+          }
+        }
+        if (c.progress && c.progress.timings) {
+          out += '  Тайминги: ' + JSON.stringify(c.progress.timings) + '\n';
+        }
+      }
+    } else {
+      out += '  (нет проверок)\n';
+    }
+
+    out += '\n=== Raw JSON ===\n';
+    out += JSON.stringify(d, null, 2);
+    return out;
   }
 
   // ── Polling cleanup ────────────────────────────────────────────────

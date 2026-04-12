@@ -306,6 +306,7 @@
             <div class="flex-gap">
               <button class="btn btn-primary btn-sm" id="btn-regime-check">Проверить все товары</button>
               <button class="btn btn-secondary btn-sm" id="btn-regime-refresh">Обновить</button>
+              <button class="btn btn-secondary" id="btn-regime-diag" style="padding:4px 10px;font-size:12px">Диагностика</button>
             </div>
           </div>
           <div class="card-body">
@@ -511,6 +512,23 @@
           <button class="btn btn-secondary" id="btn-diag-reset-search" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c">Сбросить поиск поставщиков</button>
         </div>
         <pre id="diag-content" style="background:#0f172a;color:#e2e8f0;padding:16px;border-radius:8px;overflow:auto;max-height:60vh;font-size:12px;line-height:1.5;font-family:'SF Mono',Monaco,Consolas,monospace;white-space:pre-wrap;word-break:break-word">Загрузка...</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: Regime Diagnostics ===== -->
+  <div class="modal-overlay" id="modal-regime-diag">
+    <div class="modal" style="max-width:900px">
+      <div class="modal-header">
+        <h3>Диагностика Нацрежим</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <button class="btn btn-secondary" id="btn-regime-diag-refresh">Обновить</button>
+          <button class="btn btn-secondary" id="btn-regime-diag-copy">Скопировать JSON</button>
+        </div>
+        <pre id="regime-diag-content" style="background:#0f172a;color:#e2e8f0;padding:16px;border-radius:8px;overflow:auto;max-height:60vh;font-size:12px;line-height:1.5;font-family:'SF Mono',Monaco,Consolas,monospace;white-space:pre-wrap;word-break:break-word">Загрузка...</pre>
       </div>
     </div>
   </div>

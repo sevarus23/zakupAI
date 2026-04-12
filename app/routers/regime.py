@@ -57,6 +57,7 @@ class RegimeCheckOut(BaseModel):
     id: int
     purchase_id: int
     status: str
+    filename: Optional[str] = None
     ok_count: int
     warning_count: int
     error_count: int
@@ -110,15 +111,47 @@ def _get_latest_check(session, purchase_id: int) -> RegimeCheck:
 )
 def start_regime_check(
     purchase_id: int,
+    background_tasks: BackgroundTasks,
     session=Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    """Start a regime check for a purchase.
+    """Run M4 Нацрежим check across ALL bids (КП) for this purchase.
 
-    Creates a RegimeCheck record with status 'pending' and returns it.
-    Background processing will be added later.
+    Gathers items from every Bid that has parsed BidLot rows, merges them,
+    and runs the full pipeline in the background. The caller polls
+    ``GET /regime/purchases/{id}/check/progress`` to watch it progress.
     """
     _get_user_purchase(session, purchase_id, user)
+
+    # Gather items from ALL bids for this purchase
+    bids = session.exec(
+        select(Bid).where(Bid.purchase_id == purchase_id)
+    ).all()
+    if not bids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Нет загруженных КП. Сначала загрузите коммерческие предложения.",
+        )
+
+    all_items: list[dict] = []
+    bid_names: list[str] = []
+    for bid in bids:
+        items = _build_items_from_bid(session, bid.id)
+        if items:
+            label = bid.supplier_name or f"КП #{bid.id}"
+            bid_names.append(f"{label} ({len(items)} поз.)")
+            all_items.extend(items)
+
+    if not all_items:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Ни в одном КП нет распознанных позиций. Сначала запустите "
+                "распознавание лотов в модуле «Письма и КП»."
+            ),
+        )
+
+    filename_label = "; ".join(bid_names)
 
     check = RegimeCheck(
         purchase_id=purchase_id,
@@ -128,10 +161,17 @@ def start_regime_check(
         warning_count=0,
         error_count=0,
         not_found_count=0,
+        filename=filename_label,
     )
     session.add(check)
     session.commit()
     session.refresh(check)
+
+    background_tasks.add_task(_bg_run_check_from_items, check.id, all_items)
+    logger.info(
+        "[regime] enqueued check-all check_id=%s purchase=%s bids=%s items=%d",
+        check.id, purchase_id, [b.id for b in bids], len(all_items),
+    )
 
     return check
 
@@ -211,7 +251,71 @@ def get_regime_check_progress(
     _get_user_purchase(session, purchase_id, user)
     check = _get_latest_check(session, purchase_id)
     progress = get_progress(check.id)
-    return {"check_id": check.id, **progress}
+    return {"check_id": check.id, "filename": check.filename, **progress}
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics (admin only)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/purchases/{purchase_id}/check/diagnostics")
+def get_regime_diagnostics(
+    purchase_id: int,
+    session=Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """Return diagnostic info for M4 regime checks of a purchase (admin only)."""
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+
+    _get_user_purchase(session, purchase_id, user)
+
+    # All regime checks for this purchase (latest first)
+    checks = session.exec(
+        select(RegimeCheck)
+        .where(RegimeCheck.purchase_id == purchase_id)
+        .order_by(RegimeCheck.created_at.desc())  # type: ignore[union-attr]
+    ).all()
+
+    # All bids and their lot counts
+    bids = session.exec(select(Bid).where(Bid.purchase_id == purchase_id)).all()
+    bid_info = []
+    for bid in bids:
+        lot_count = len(session.exec(
+            select(BidLot).where(BidLot.bid_id == bid.id)
+        ).all())
+        bid_info.append({
+            "bid_id": bid.id,
+            "supplier_name": bid.supplier_name,
+            "lot_count": lot_count,
+            "created_at": str(bid.created_at),
+        })
+
+    checks_info = []
+    for c in checks[:10]:
+        item_count = len(session.exec(
+            select(RegimeCheckItem).where(RegimeCheckItem.check_id == c.id)
+        ).all())
+        progress = get_progress(c.id)
+        checks_info.append({
+            "check_id": c.id,
+            "status": c.status,
+            "filename": c.filename,
+            "ok": c.ok_count,
+            "warning": c.warning_count,
+            "error": c.error_count,
+            "not_found": c.not_found_count,
+            "items_in_db": item_count,
+            "created_at": str(c.created_at),
+            "progress": progress,
+        })
+
+    return {
+        "purchase_id": purchase_id,
+        "bids": bid_info,
+        "checks": checks_info,
+    }
 
 
 # ---------------------------------------------------------------------------
