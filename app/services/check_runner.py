@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from sqlmodel import Session as SMSession
 from ..models import RegimeCheck, RegimeCheckItem
 from .file_parser import parse_supplier_file
-from .registry_checker import check_registry_number
 from ..database import engine
 from .gisp_checker import check_gisp_characteristics
 from .localization_checker import check_localization
@@ -19,8 +18,69 @@ from .report_generator import generate_report
 
 logger = logging.getLogger(__name__)
 
+GISP_SCRAPER_URL = os.getenv("GISP_SCRAPER_URL", "http://gisp-scraper:8000").rstrip("/")
+
 # Max concurrent item checks (don't hammer APIs too hard)
 MAX_CONCURRENT = 5
+
+
+async def _check_registry_via_scraper(
+    registry_number: str, client: httpx.AsyncClient,
+) -> dict:
+    """Check registry number via gisp-scraper /pp719/ endpoint.
+
+    Returns dict with keys: status, is_actual, cert_end_date, url,
+    okpd2_from_registry, localization_score.
+    """
+    if not registry_number or not registry_number.strip():
+        return {"status": "not_found", "is_actual": None, "cert_end_date": None,
+                "url": None, "okpd2_from_registry": None, "localization_score": None}
+
+    import re
+    clean = re.sub(r"[^\d]", "", registry_number)
+    if not clean:
+        return {"status": "not_found", "is_actual": None, "cert_end_date": None,
+                "url": None, "okpd2_from_registry": None, "localization_score": None}
+
+    url = f"{GISP_SCRAPER_URL}/pp719/{clean}"
+    try:
+        resp = await client.get(url, timeout=30.0)
+    except httpx.RequestError as exc:
+        logger.warning(f"[registry] scraper unavailable for {clean}: {exc}")
+        return {"status": "registry_error", "is_actual": None, "cert_end_date": None,
+                "url": None, "okpd2_from_registry": None, "localization_score": None}
+
+    if resp.status_code != 200:
+        return {"status": "not_found", "is_actual": None, "cert_end_date": None,
+                "url": None, "okpd2_from_registry": None, "localization_score": None}
+
+    data = resp.json()
+    scraper_status = data.get("status", "not_found")
+
+    if scraper_status == "not_found":
+        return {"status": "not_found", "is_actual": None, "cert_end_date": None,
+                "url": None, "okpd2_from_registry": None, "localization_score": None}
+
+    record = data.get("record") or {}
+    is_actual = scraper_status == "found_actual"
+    cert_end = record.get("res_valid_till") or record.get("res_end_date")
+    okpd2 = record.get("product_okpd2_code")
+    score = None
+    try:
+        score = float(record.get("res_score") or 0)
+    except (ValueError, TypeError):
+        pass
+    product_id = record.get("id") or record.get("product_id")
+    reg_url = f"https://gisp.gov.ru/pp719v2/pub/prod/{product_id}/" if product_id else None
+
+    return {
+        "status": "ok" if is_actual else "not_actual",
+        "is_actual": is_actual,
+        "cert_end_date": cert_end,
+        "url": reg_url,
+        "okpd2_from_registry": okpd2,
+        "localization_score": score,
+    }
 
 # In-memory progress store: check_id -> {total, processed, status, message, timings, stages}
 _progress: dict[int, dict] = {}
@@ -193,19 +253,15 @@ async def _process_items_into_check(
             registry_number = raw_item.get("registry_number") or ""
             supplier_chars = raw_item.get("characteristics", [])
 
-            # 2a. Registry check
+            # 2a. Registry check (via gisp-scraper)
             t0 = time.monotonic()
-            registry_db = _get_session()
-            try:
-                reg_result = check_registry_number(registry_number, db=registry_db)
-            finally:
-                registry_db.close()
+            reg_result = await _check_registry_via_scraper(registry_number, http_client)
             t_registry = round(time.monotonic() - t0, 1)
 
-            check_item.registry_status = reg_result.status
-            check_item.registry_actual = reg_result.is_actual
-            check_item.registry_cert_end_date = reg_result.cert_end_date
-            check_item.registry_raw_url = reg_result.url
+            check_item.registry_status = reg_result["status"]
+            check_item.registry_actual = reg_result["is_actual"]
+            check_item.registry_cert_end_date = reg_result["cert_end_date"]
+            check_item.registry_raw_url = reg_result["url"]
 
             async with lock:
                 registry_done += 1
@@ -214,11 +270,11 @@ async def _process_items_into_check(
                     _update_stage(check_id, STAGE_REGISTRY, "done", f"{n} из {n}")
                 _update_stage(check_id, STAGE_LOCALIZATION, "in_progress", f"{loc_done} из {n}")
 
-            okpd2_code = raw_item.get("okpd2_code") or reg_result.okpd2_from_registry
+            okpd2_code = raw_item.get("okpd2_code") or reg_result["okpd2_from_registry"]
 
             # 2b. Localization check
-            if reg_result.status in ("ok", "not_actual"):
-                loc_result = check_localization(okpd2_code, reg_result.localization_score)
+            if reg_result["status"] in ("ok", "not_actual"):
+                loc_result = check_localization(okpd2_code, reg_result["localization_score"])
                 check_item.localization_status = loc_result.status
                 check_item.localization_actual_score = loc_result.actual_score
                 check_item.localization_required_score = loc_result.required_score
@@ -234,7 +290,7 @@ async def _process_items_into_check(
 
             # 2c. GISP check
             t_gisp = 0.0
-            if reg_result.status == "ok" and supplier_chars:
+            if reg_result["status"] == "ok" and supplier_chars:
                 t0 = time.monotonic()
                 gisp_result = await check_gisp_characteristics(
                     registry_number=registry_number,
