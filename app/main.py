@@ -19,7 +19,7 @@ from .routers import auth as auth_router
 from .routers import admin as admin_router
 from .routers import leads as leads_router
 from .routers import regime as regime_router
-from .llm_openai import build_search_queries
+from .services.llm_tasks import build_search_queries
 from .llm_stub import generate_email_body
 from .models import (
     Bid,

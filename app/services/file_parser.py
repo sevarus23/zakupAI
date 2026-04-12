@@ -3,7 +3,7 @@ import io
 import openpyxl
 import docx
 from pathlib import Path
-from .llm_client import extract_items_from_text
+from .llm_tasks import extract_items_from_text
 
 
 def _read_xlsx(path: str) -> str:

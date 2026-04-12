@@ -1,10 +1,18 @@
+"""Perplexity-backed supplier search.
+
+Perplexity is reached through OpenRouter via the unified ``llm`` transport
+under the dedicated task name ``supplier_search_perplexity``. The model is
+overridable via ``LLM_MODEL_SUPPLIER_SEARCH_PERPLEXITY`` (or the legacy
+``PERPLEXITY_MODEL`` env var).
+"""
 import os
 from typing import Any, Dict, Optional
 
-from openai import OpenAI
+from app.services import llm
+from app.services.llm_tasks import extract_structured_contacts_from_perplexity
 
-from app.llm_openai import extract_structured_contacts_from_perplexity
-from app.usage_tracking import record_usage
+# Task name — must match the suffix used for env-var overrides.
+TASK_SUPPLIER_SEARCH_PERPLEXITY = "supplier_search_perplexity"
 
 
 def _build_prompt(terms_text: str, min_contacts: int) -> str:
@@ -15,51 +23,41 @@ def _build_prompt(terms_text: str, min_contacts: int) -> str:
     )
 
 
+def _resolve_min_contacts() -> int:
+    raw = (os.getenv("PERPLEXITY_MIN_CONTACTS") or "").strip()
+    try:
+        return int(raw) if raw else 10
+    except ValueError:
+        return 10
+
+
+def _resolve_perplexity_model() -> str:
+    """Pick the Perplexity model.
+
+    Allow either the new task-scoped override or the legacy ``PERPLEXITY_MODEL``
+    env var. When neither is set, fall back to the default sonar model.
+    """
+    legacy = os.getenv("PERPLEXITY_MODEL")
+    if legacy:
+        os.environ.setdefault("LLM_MODEL_SUPPLIER_SEARCH_PERPLEXITY", legacy)
+    return llm.resolve_config(TASK_SUPPLIER_SEARCH_PERPLEXITY).model
+
+
 def search_suppliers_with_perplexity(
     terms_text: str,
     *,
     usage_ctx: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is not configured")
-
-    min_contacts_raw = (os.getenv("PERPLEXITY_MIN_CONTACTS") or "").strip()
-    try:
-        min_contacts = int(min_contacts_raw) if min_contacts_raw else 10
-    except ValueError:
-        min_contacts = 10
+    min_contacts = _resolve_min_contacts()
     prompt = _build_prompt(terms_text or "", min_contacts)
+    model = _resolve_perplexity_model()
 
-    client = OpenAI(
-        base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-        api_key=api_key,
-    )
-    model = os.getenv("PERPLEXITY_MODEL", "perplexity/sonar-pro-search")
-
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            extra_body={"reasoning": {"enabled": True}, "usage": {"include": True}},
-        )
-    except Exception as exc:  # noqa: BLE001
-        record_usage(
-            channel="perplexity",
-            operation="supplier_search_perplexity",
-            model=model,
-            success=False,
-            error_message=str(exc)[:500],
-            **(usage_ctx or {}),
-        )
-        raise
-
-    record_usage(
-        channel="perplexity",
-        operation="supplier_search_perplexity",
-        model=model,
-        response=response,
-        **(usage_ctx or {}),
+    response = llm.chat_completion(
+        [{"role": "user", "content": prompt}],
+        task=TASK_SUPPLIER_SEARCH_PERPLEXITY,
+        extra_body={"reasoning": {"enabled": True}},
+        timeout=120.0,
+        usage_ctx=usage_ctx,
     )
 
     content = response.choices[0].message.content if response.choices else None

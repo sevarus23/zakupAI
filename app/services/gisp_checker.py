@@ -17,7 +17,7 @@ Flow per item:
    organized by tab.
 
 3. Hand the supplier's chars + GISP's chars to the LLM comparator
-   (``compare_characteristics`` in ``llm_client``).
+   (``compare_characteristics`` in ``llm_tasks``).
 
 4. Roll up to a single status: ok | warning | mismatch | not_found |
    gisp_unavailable | not_actual | skipped.
@@ -35,7 +35,7 @@ from typing import Any, Optional
 
 import httpx
 
-from .llm_client import compare_characteristics
+from .llm_tasks import compare_characteristics
 
 logger = logging.getLogger(__name__)
 
