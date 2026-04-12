@@ -1295,14 +1295,15 @@
         this.disabled = true;
         $('comparison-results').innerHTML = '';
         var stageNames = ['Загрузка данных', 'Эмбеддинги лотов', 'Сопоставление лотов (LLM)', 'Сопоставление характеристик', 'Формирование результата'];
-        // Start comparison for ALL bids
+        _comparisonStartTime = Date.now();
         _comparisonBidQueue = currentBids.map(function (b, idx) {
           var stages = stageNames.map(function (name) { return {name: name, status: 'pending', detail: ''}; });
-          // First bid gets spinner on first stage; rest show "в очереди"
           if (idx === 0) stages[0].status = 'in_progress';
           return { bid_id: b.id, name: b.supplier_name || 'Поставщик',
-                   status: idx === 0 ? 'in_progress' : 'queued', stages: stages };
+                   status: idx === 0 ? 'in_progress' : 'queued', stages: stages,
+                   startTime: idx === 0 ? Date.now() : null, elapsed: null };
         });
+        _startComparisonTimer();
         _renderComparisonAllProgress();
         // Fire all POSTs in parallel
         var postPromises = currentBids.map(function (b) {
@@ -1399,7 +1400,25 @@
     initComparisonDiag();
   }
 
-  var _comparisonBidQueue = []; // [{bid_id, name, status, stages, rows}]
+  var _comparisonBidQueue = [];
+  var _comparisonStartTime = null;
+  var _comparisonTimerInterval = null;
+
+  function _fmtElapsed(ms) {
+    var s = Math.floor(ms / 1000);
+    var m = Math.floor(s / 60);
+    s = s % 60;
+    return (m > 0 ? m + ':' : '') + (s < 10 && m > 0 ? '0' : '') + s + ' сек';
+  }
+
+  function _startComparisonTimer() {
+    _stopComparisonTimer();
+    _comparisonTimerInterval = setInterval(function () { _renderComparisonAllProgress(); }, 1000);
+  }
+
+  function _stopComparisonTimer() {
+    if (_comparisonTimerInterval) { clearInterval(_comparisonTimerInterval); _comparisonTimerInterval = null; }
+  }
 
   async function pollComparisonAll() {
     if (!currentPurchase || !_comparisonBidQueue.length) return;
@@ -1410,11 +1429,13 @@
       try {
         var result = await API.apiFetch('/purchases/' + currentPurchase.id + '/bids/' + entry.bid_id + '/comparison');
         if (result.status === 'queued' || result.status === 'in_progress') {
+          if (entry.status === 'queued') entry.startTime = Date.now();
           entry.status = 'in_progress';
           if (result.stages && result.stages.length) entry.stages = result.stages;
           allDone = false;
         } else if (result.status === 'done' || result.status === 'completed') {
           entry.status = 'done';
+          entry.elapsed = entry.startTime ? Date.now() - entry.startTime : null;
           if (result.stages && result.stages.length) entry.stages = result.stages;
           entry.rows = result.rows || [];
         } else {
@@ -1428,8 +1449,9 @@
     }
     _renderComparisonAllProgress();
     if (allDone) {
+      _stopComparisonTimer();
       $('btn-compare').disabled = false;
-      setTimeout(function () { $('comparison-progress').innerHTML = ''; }, 2000);
+      setTimeout(function () { $('comparison-progress').innerHTML = ''; }, 3000);
       _renderComparisonAllResults();
     } else {
       comparisonPollingTimer = setTimeout(pollComparisonAll, 1000);
@@ -1439,35 +1461,62 @@
   function _renderComparisonAllProgress() {
     var el = $('comparison-progress');
     if (!el) return;
+    var now = Date.now();
+    var totalElapsed = _comparisonStartTime ? _fmtElapsed(now - _comparisonStartTime) : '';
+
     var html = '<div class="card" style="margin-bottom:12px"><div class="card-body">';
-    html += '<div style="font-weight:600;margin-bottom:10px">Сравнение КП с ТЗ</div>';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
+    html += '<span style="font-weight:600">Сравнение КП с ТЗ</span>';
+    if (totalElapsed) html += '<span style="font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums">' + totalElapsed + '</span>';
+    html += '</div>';
+
     for (var b = 0; b < _comparisonBidQueue.length; b++) {
       var entry = _comparisonBidQueue[b];
+      var isActive = entry.status === 'in_progress';
+      var isDone = entry.status === 'done';
+      var isQueued = entry.status === 'queued' || entry.status === 'pending';
+      var isFailed = entry.status === 'failed';
+
+      // Bid icon
       var bidIcon = '&#9675;';
-      var bidColor = 'var(--text-secondary)';
-      var bidExtra = '';
-      if (entry.status === 'done') { bidIcon = '<span style="color:var(--success)">&#10003;</span>'; bidColor = 'var(--text)'; }
-      else if (entry.status === 'in_progress') { bidIcon = '<div class="spinner" style="width:14px;height:14px;display:inline-block"></div>'; bidColor = 'var(--accent)'; }
-      else if (entry.status === 'queued' || entry.status === 'pending') { bidExtra = '<span style="color:var(--text-secondary);font-size:12px;margin-left:8px">в очереди</span>'; }
-      else if (entry.status === 'failed') { bidIcon = '<span style="color:var(--danger)">&#10007;</span>'; bidColor = 'var(--danger)'; }
-      html += '<div style="margin-bottom:8px">';
-      html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;color:' + bidColor + ';font-weight:500">';
+      if (isDone) bidIcon = '<span style="color:var(--success)">&#10003;</span>';
+      else if (isActive) bidIcon = '<div class="spinner" style="width:14px;height:14px;display:inline-block"></div>';
+      else if (isFailed) bidIcon = '<span style="color:var(--danger)">&#10007;</span>';
+
+      // Bid timer
+      var bidTimer = '';
+      if (isDone && entry.elapsed) bidTimer = _fmtElapsed(entry.elapsed);
+      else if (isActive && entry.startTime) bidTimer = _fmtElapsed(now - entry.startTime);
+
+      // Collapsible: expand only the active one
+      var expanded = isActive;
+      var arrowStyle = 'cursor:pointer;transition:transform .2s;' + (expanded ? '' : 'transform:rotate(-90deg);');
+
+      html += '<div style="margin-bottom:6px;border-bottom:1px solid var(--border);padding-bottom:6px">';
+      // Header row (clickable)
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer" onclick="var stages=this.nextElementSibling;if(stages){stages.style.display=stages.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.comp-prog-arrow\').style.transform=stages.style.display===\'none\'?\'rotate(-90deg)\':\'\'}">';
+      html += '<span class="comp-prog-arrow" style="font-size:10px;color:var(--text-secondary);' + arrowStyle + '">&#9660;</span>';
       html += '<span style="width:20px;text-align:center">' + bidIcon + '</span>';
-      html += '<span>' + escapeHtml(entry.name) + '</span>' + bidExtra;
+      html += '<span style="font-weight:500;color:' + (isActive ? 'var(--accent)' : isDone ? 'var(--success)' : isFailed ? 'var(--danger)' : 'var(--text-secondary)') + '">' + escapeHtml(entry.name) + '</span>';
+      if (isQueued) html += '<span style="font-size:12px;color:var(--text-secondary);margin-left:4px">в очереди</span>';
+      if (bidTimer) html += '<span style="font-size:12px;color:var(--text-secondary);margin-left:auto;font-variant-numeric:tabular-nums">' + bidTimer + '</span>';
       html += '</div>';
-      // Show stages for active/done bids (not queued)
-      if (entry.stages && entry.status !== 'queued' && entry.status !== 'pending') {
+
+      // Stages (collapsible)
+      if (entry.stages && !isQueued) {
+        html += '<div style="' + (expanded ? '' : 'display:none') + '">';
         for (var si = 0; si < entry.stages.length; si++) {
           var s = entry.stages[si];
           var sIcon = '&#9675;', sColor = 'var(--text-secondary)';
           if (s.status === 'done') { sIcon = '<span style="color:var(--success)">&#10003;</span>'; sColor = 'var(--text)'; }
-          else if (s.status === 'in_progress') { sIcon = '<div class="spinner" style="width:12px;height:12px;display:inline-block"></div>'; sColor = 'var(--accent)'; }
-          html += '<div style="display:flex;align-items:center;gap:8px;padding:2px 0 2px 28px;color:' + sColor + ';font-size:13px">';
+          else if (s.status === 'in_progress') { sIcon = '<div class="spinner" style="width:12px;height:12px;display:inline-block;border-color:var(--success);border-top-color:transparent"></div>'; sColor = 'var(--success)'; }
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:2px 0 2px 36px;color:' + sColor + ';font-size:13px">';
           html += '<span style="width:16px;text-align:center">' + sIcon + '</span>';
           html += '<span>' + escapeHtml(s.name) + '</span>';
           if (s.detail) html += '<span style="color:var(--text-secondary);font-size:12px;margin-left:auto">' + escapeHtml(s.detail) + '</span>';
           html += '</div>';
         }
+        html += '</div>';
       }
       html += '</div>';
     }
