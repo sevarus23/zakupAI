@@ -1414,11 +1414,11 @@
         var result = await API.apiFetch('/purchases/' + currentPurchase.id + '/bids/' + entry.bid_id + '/comparison');
         if (result.status === 'queued' || result.status === 'in_progress') {
           entry.status = 'in_progress';
-          entry.stages = result.stages;
+          if (result.stages && result.stages.length) entry.stages = result.stages;
           allDone = false;
         } else if (result.status === 'done' || result.status === 'completed') {
           entry.status = 'done';
-          entry.stages = result.stages;
+          if (result.stages && result.stages.length) entry.stages = result.stages;
           entry.rows = result.rows || [];
         } else {
           entry.status = 'failed';
