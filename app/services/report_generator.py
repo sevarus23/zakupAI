@@ -11,6 +11,7 @@ from reportlab.platypus import (
     Spacer, HRFlowable, PageBreak,
 )
 from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
@@ -56,6 +57,14 @@ def _register_fonts():
         for f in glob.glob("C:/Windows/Fonts/**/DejaVuSans-Bold.ttf", recursive=True):
             pdfmetrics.registerFont(TTFont(_FONT_BOLD, f))
             break
+    # Register font family so <b> tags in Paragraph resolve correctly
+    registerFontFamily(
+        _FONT,
+        normal=_FONT,
+        bold=_FONT_BOLD,
+        italic=_FONT,
+        boldItalic=_FONT_BOLD,
+    )
     _fonts_registered = True
 
 
