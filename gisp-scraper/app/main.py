@@ -40,11 +40,12 @@ import logging
 import os
 import re
 import time
+import urllib.error
+import urllib.request
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Any, Dict, List, Optional
 
-import httpx
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -168,16 +169,16 @@ def _extract_product_id(gisp_url: Optional[str]) -> Optional[str]:
     return m.group(1) if m else None
 
 
-async def _fetch_pp719_records(registry_number: str) -> List[Dict[str, Any]]:
-    """POST to the PP-719v2 grid endpoint and return raw item dicts.
+def _fetch_pp719_records_sync(registry_number: str) -> List[Dict[str, Any]]:
+    """POST to the PP-719v2 grid endpoint via the stdlib urllib.
 
-    NOTE on httpx vs curl: gisp.gov.ru's PP-719 grid endpoint hangs forever
-    on POST when httpx serializes the body via the ``json=`` shortcut. The
-    shortcut emits a chunked-encoded body, and the upstream server keeps
-    the connection open waiting for a Content-Length it never sees. We
-    serialize the JSON ourselves and pass it via ``content=`` so httpx
-    sets a real Content-Length header — that matches what curl does and
-    the server replies in ~120 ms.
+    Why urllib instead of httpx: empirically, httpx's POST against this
+    specific endpoint hangs forever on read inside the deployed container,
+    while urllib's request returns in ~120 ms with the same headers and
+    body. We are not interested in chasing httpx's TLS/HTTP/transport
+    quirks for a single grid call — urllib is good enough and dependency-
+    free. We wrap this sync function with run_in_executor to keep FastAPI's
+    event loop unblocked.
     """
     payload = {
         "opt": {
@@ -185,28 +186,38 @@ async def _fetch_pp719_records(registry_number: str) -> List[Dict[str, Any]]:
         }
     }
     body = json.dumps(payload).encode("utf-8")
-    async with httpx.AsyncClient(timeout=PP719_HTTP_TIMEOUT, http2=False) as client:
-        try:
-            resp = await client.post(
-                PP719_API_URL,
-                content=body,
-                headers=_REGISTRY_HEADERS,
-            )
-        except httpx.RequestError as exc:
-            logger.warning("PP719 fetch failed: %s", exc)
-            raise HTTPException(status_code=503, detail=f"GISP unreachable: {exc}")
+    req = urllib.request.Request(
+        PP719_API_URL,
+        data=body,
+        headers=_REGISTRY_HEADERS,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=PP719_HTTP_TIMEOUT) as resp:
+            status = resp.status
+            raw = resp.read()
+    except urllib.error.HTTPError as exc:
+        logger.warning("PP719 returned HTTP %s", exc.code)
+        raise HTTPException(status_code=502, detail=f"GISP returned HTTP {exc.code}")
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        logger.warning("PP719 fetch failed: %s", exc)
+        raise HTTPException(status_code=503, detail=f"GISP unreachable: {exc}")
 
-    if resp.status_code != 200:
-        logger.warning("PP719 returned HTTP %s", resp.status_code)
-        raise HTTPException(status_code=502, detail=f"GISP returned HTTP {resp.status_code}")
+    if status != 200:
+        raise HTTPException(status_code=502, detail=f"GISP returned HTTP {status}")
 
     try:
-        data = resp.json()
+        data = json.loads(raw)
     except ValueError:
         raise HTTPException(status_code=502, detail="GISP returned non-JSON body")
 
     items = data.get("items") if isinstance(data, dict) else None
     return items or []
+
+
+async def _fetch_pp719_records(registry_number: str) -> List[Dict[str, Any]]:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _fetch_pp719_records_sync, registry_number)
 
 
 def _select_active_record(
