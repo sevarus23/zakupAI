@@ -1570,8 +1570,9 @@
       var okLots = 0;
       for (var rl = 0; rl < completed[t].rows.length; rl++) {
         var chars = completed[t].rows[rl].characteristic_rows || [];
-        var allMatch = chars.length > 0 && chars.every(function (c) { return c.status === 'matched'; });
-        if (allMatch) okLots++;
+        // Lot is OK if no TZ-relevant issues (unmatched_kp is fine)
+        var hasProblems = chars.some(function (c) { return c.status === 'mismatch' || c.status === 'unmatched_tz' || c.status === 'partial'; });
+        if (!hasProblems) okLots++;
       }
       var indicatorClass = okLots === totalLots ? 'comp-supplier-indicator--ok' : okLots === 0 ? 'comp-supplier-indicator--fail' : 'comp-supplier-indicator--warn';
       var metaText = okLots + ' из ' + totalLots + ' соответств.';
@@ -1621,7 +1622,8 @@
     var warnLots = 0, warnRows = [];
     for (var li = 0; li < rows.length; li++) {
       var crs = rows[li].characteristic_rows || [];
-      if (crs.some(function (c) { return c.status !== 'matched'; })) { warnLots++; warnRows.push(rows[li]); }
+      // Only TZ-relevant issues count as discrepancies
+      if (crs.some(function (c) { return c.status === 'mismatch' || c.status === 'unmatched_tz' || c.status === 'partial'; })) { warnLots++; warnRows.push(rows[li]); }
     }
     var summaryClass = warnLots === 0 ? 'status-active' : 'status-warning';
     var summaryText = warnLots === 0 ? 'Все лоты совпадают' : warnLots + ' из ' + totalLots + ' лотов с расхождениями';
@@ -1671,17 +1673,21 @@
     var html = '';
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
-      var totalChars = row.characteristic_rows ? row.characteristic_rows.length : 0;
-      var matchedChars = 0, unmatchedChars = 0;
+      // Count only TZ-relevant discrepancies (mismatch + unmatched_tz + partial)
+      // unmatched_kp = extra KP params, NOT a problem
+      var tzTotal = 0, tzOk = 0, tzProblems = 0;
       if (row.characteristic_rows) {
         for (var m = 0; m < row.characteristic_rows.length; m++) {
-          if (row.characteristic_rows[m].status === 'matched') matchedChars++;
-          else unmatchedChars++;
+          var st = row.characteristic_rows[m].status;
+          if (st === 'unmatched_kp') continue; // not a TZ requirement
+          tzTotal++;
+          if (st === 'matched') tzOk++;
+          else tzProblems++; // mismatch, unmatched_tz, partial
         }
       }
-      var lotIndicator = unmatchedChars > 0 ? 'comp-lot-indicator--warn' : 'comp-lot-indicator--ok';
-      var lotBadgeClass = unmatchedChars > 0 ? 'comp-lot-badge--warn' : 'comp-lot-badge--ok';
-      var lotBadgeText = unmatchedChars > 0 ? unmatchedChars + ' расхождени' + (unmatchedChars === 1 ? 'е' : unmatchedChars < 5 ? 'я' : 'й') : 'Всё совпадает';
+      var lotIndicator = tzProblems > 0 ? 'comp-lot-indicator--warn' : 'comp-lot-indicator--ok';
+      var lotBadgeClass = tzProblems > 0 ? 'comp-lot-badge--warn' : 'comp-lot-badge--ok';
+      var lotBadgeText = tzProblems > 0 ? tzProblems + ' расхождени' + (tzProblems === 1 ? 'е' : tzProblems < 5 ? 'я' : 'й') : 'Соответствует ТЗ';
 
       html += '<div class="comp-lot" data-expanded="false">' +
         '<div class="comp-lot-header" onclick="this.parentElement.dataset.expanded = this.parentElement.dataset.expanded === \'true\' ? \'false\' : \'true\'; var body = this.nextElementSibling; body.style.display = this.parentElement.dataset.expanded === \'true\' ? \'block\' : \'none\'; this.querySelector(\'.comp-lot-arrow\').style.transform = this.parentElement.dataset.expanded === \'true\' ? \'\' : \'rotate(-90deg)\'">' +
@@ -1691,7 +1697,7 @@
         '<span class="comp-lot-title">' + escapeHtml(row.lot_name) + '</span>' +
         '</div>' +
         '<div class="comp-lot-header-right">' +
-        '<span class="comp-lot-stat">' + matchedChars + ' из ' + totalChars + ' совпадают</span>' +
+        '<span class="comp-lot-stat">' + tzOk + ' из ' + tzTotal + ' по ТЗ</span>' +
         '<span class="comp-lot-badge ' + lotBadgeClass + '">' + lotBadgeText + '</span>' +
         '</div></div>';
 
@@ -1701,15 +1707,20 @@
           '<thead><tr><th>Характеристика</th><th>Требование ТЗ</th><th>' + kpHeader + '</th></tr></thead><tbody>';
         for (var j = 0; j < row.characteristic_rows.length; j++) {
           var cr = row.characteristic_rows[j];
-          var statusClass = cr.status === 'matched' ? 'match' : cr.status === 'unmatched_tz' ? 'mismatch' : 'partial';
-          var statusIcon = cr.status === 'matched' ? '&#10003;' : cr.status === 'unmatched_tz' ? '&#10007;' : '&#9888;';
+          var statusClass, statusIcon;
+          if (cr.status === 'matched') { statusClass = 'match'; statusIcon = '&#10003;'; }
+          else if (cr.status === 'mismatch') { statusClass = 'mismatch'; statusIcon = '&#10007;'; }
+          else if (cr.status === 'unmatched_tz') { statusClass = 'mismatch'; statusIcon = '&#10007;'; }
+          else if (cr.status === 'partial') { statusClass = 'partial'; statusIcon = '&#9888;'; }
+          else if (cr.status === 'unmatched_kp') { statusClass = 'extra'; statusIcon = '&#43;'; }
+          else { statusClass = 'match'; statusIcon = '&#10003;'; }
           var lp = _splitParamText(cr.left_text);
           var rp = _splitParamText(cr.right_text);
           var paramName = lp.name || rp.name || '';
           var tzVal = lp.value || lp.name || '';
           var kpVal = cr.right_text ? (rp.value || rp.name || '') : '—';
           if (!lp.value && lp.name) { paramName = ''; tzVal = lp.name; }
-          html += '<tr><td>' + escapeHtml(paramName) + '</td><td>' + escapeHtml(tzVal) + '</td>' +
+          html += '<tr class="comp-row-' + cr.status + '"><td>' + escapeHtml(paramName) + '</td><td>' + escapeHtml(tzVal) + '</td>' +
             '<td class="' + statusClass + '"><span class="check-icon">' + statusIcon + '</span> ' + escapeHtml(kpVal) + '</td></tr>';
         }
         html += '</tbody></table></div>';

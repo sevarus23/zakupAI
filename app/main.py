@@ -411,7 +411,7 @@ def _serialize_lot_comparison(task: LLMTask, bid_id: int) -> LotComparisonRespon
                         right_text=str(row.get("right_text") or ""),
                         status=(
                             row.get("status")
-                            if row.get("status") in ("unmatched_tz", "matched", "unmatched_kp")
+                            if row.get("status") in ("unmatched_tz", "matched", "unmatched_kp", "mismatch", "partial")
                             else "matched"
                         ),
                     )

@@ -342,7 +342,7 @@ class BidRead(BaseModel):
 class ComparisonCharacteristicRowRead(BaseModel):
     left_text: str = ""
     right_text: str = ""
-    status: Literal["unmatched_tz", "matched", "unmatched_kp"] = "matched"
+    status: Literal["unmatched_tz", "matched", "unmatched_kp", "mismatch", "partial"] = "matched"
 
 
 class LotComparisonRowRead(BaseModel):

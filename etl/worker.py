@@ -552,16 +552,27 @@ def _build_characteristic_rows(
 
     unmatched_bid_params = [param for param in bid_params_indexed if param["id"] not in used_bid_ids]
 
-    # Build rows in TZ parameter order: matched pairs first (preserving TZ order),
-    # then unmatched KP params at the end
-    rows: List[Dict] = []
+    # Phase 3: Value compliance check via single batch LLM call
+    matched_pairs = []
     for lot_param in lot_params_indexed:
         bid_param = matched_map.get(lot_param["id"])
         if bid_param:
+            matched_pairs.append((lot_param, bid_param))
+
+    compliance = _check_value_compliance(client, matched_pairs)
+
+    # Build rows in TZ parameter order, then unmatched KP at the end
+    rows: List[Dict] = []
+    pair_idx = 0
+    for lot_param in lot_params_indexed:
+        bid_param = matched_map.get(lot_param["id"])
+        if bid_param:
+            status = compliance[pair_idx] if pair_idx < len(compliance) else "matched"
+            pair_idx += 1
             rows.append({
                 "left_text": _param_to_text(lot_param),
                 "right_text": _param_to_text(bid_param),
-                "status": "matched",
+                "status": status,
             })
         else:
             rows.append({
@@ -578,6 +589,94 @@ def _build_characteristic_rows(
         for param in unmatched_bid_params
     )
     return rows
+
+
+def _check_value_compliance(
+    client: OpenAI,
+    matched_pairs: List[Tuple[Dict, Dict]],
+) -> List[str]:
+    """Check if KP values satisfy TZ requirements. Returns list of statuses:
+    'matched' (compliant), 'mismatch' (violates TZ), 'partial' (ambiguous).
+    Single batch LLM call for all pairs in a lot.
+    """
+    if not matched_pairs:
+        return []
+
+    lines = []
+    for i, (tz, kp) in enumerate(matched_pairs):
+        lines.append(f"{i}: ТЗ: {_param_to_text(tz)} | КП: {_param_to_text(kp)}")
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Ты проверяешь, удовлетворяет ли значение из КП (коммерческого предложения) "
+                "требованию из ТЗ (технического задания).\n"
+                "Правила:\n"
+                "- Если ТЗ указывает '≥ X', значение КП должно быть >= X\n"
+                "- Если ТЗ указывает '≤ X', значение КП должно быть <= X\n"
+                "- Если ТЗ указывает точное значение, КП должно совпадать или быть эквивалентным\n"
+                "- Если ТЗ указывает 'Да/Нет', КП должно совпадать\n"
+                "- Единицы измерения могут отличаться (кг=Килограмм, ГБ=Гигабайт и т.д.)\n"
+                "- Если невозможно однозначно определить — ставь 'partial'\n"
+                "Ответ строго JSON."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Проверь каждую пару. Для каждого номера верни статус.\n\n"
+                + "\n".join(lines)
+                + "\n\nВерни JSON: {\"results\": [{\"id\": 0, \"status\": \"ok|mismatch|partial\", \"reason\": \"коротко\"}]}"
+            ),
+        },
+    ]
+
+    try:
+        response = client.chat.completions.create(
+            model=OPENROUTER_MATCH_MODEL,
+            messages=messages,
+            response_format={"type": "json_object"},
+            temperature=0,
+            max_completion_tokens=4000,
+            extra_body={"usage": {"include": True}},
+        )
+    except Exception:
+        response = client.chat.completions.create(
+            model=OPENROUTER_MATCH_MODEL,
+            messages=messages,
+            temperature=0,
+            max_completion_tokens=4000,
+            extra_body={"usage": {"include": True}},
+        )
+    record_usage(
+        channel="openrouter",
+        operation="value_compliance_check",
+        model=OPENROUTER_MATCH_MODEL,
+        response=response,
+    )
+    content = response.choices[0].message.content if response.choices else ""
+    payload = _extract_json_payload(content or "")
+    results_list = payload.get("results", [])
+
+    # Map results by id
+    result_by_id = {}
+    for r in results_list:
+        if isinstance(r, dict) and "id" in r:
+            result_by_id[r["id"]] = r.get("status", "matched")
+
+    statuses = []
+    for i in range(len(matched_pairs)):
+        raw = result_by_id.get(i, "matched")
+        if raw == "ok":
+            statuses.append("matched")
+        elif raw == "mismatch":
+            statuses.append("mismatch")
+        elif raw == "partial":
+            statuses.append("partial")
+        else:
+            statuses.append("matched")
+    return statuses
 
 
 def _build_lot_comparison_rows(session: Session, purchase_id: int, bid_id: int,
