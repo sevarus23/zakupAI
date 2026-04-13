@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional
 from sqlmodel import Session
 
 from .database import engine
-from .models import LLMUsage
+from .models import LLMTrace, LLMUsage
 
 logger = logging.getLogger(__name__)
 
@@ -125,13 +125,15 @@ def record_usage(
     completion_tokens: Optional[int] = None,
     total_tokens: Optional[int] = None,
     cost_usd: Optional[float] = None,
-) -> None:
+    duration_ms: Optional[int] = None,
+) -> Optional[int]:
     """Записать одну строку использования API.
 
     Если передан response — токены/cost будут вытащены автоматически. Можно также
     явно передать prompt_tokens/cost_usd (для случаев типа Yandex без usage в ответе).
 
     Никогда не выбрасывает исключение — usage tracking не должен ломать основной поток.
+    Returns the LLMUsage.id if successfully recorded, else None.
     """
     try:
         # Merge in any contextvar-set defaults (for callers that didn't pass purchase_id/task_id)
@@ -173,9 +175,12 @@ def record_usage(
                 request_count=request_count,
                 success=success,
                 error_message=error_message,
+                duration_ms=duration_ms,
             )
             session.add(usage_row)
             session.commit()
+            session.refresh(usage_row)
+            return usage_row.id
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "[usage_tracking] failed to record %s/%s: %s",
@@ -183,3 +188,30 @@ def record_usage(
             operation,
             exc,
         )
+        return None
+
+
+def save_trace(
+    usage_id: int,
+    request_messages: list,
+    response_content: Optional[str],
+    duration_ms: Optional[int] = None,
+) -> None:
+    """Save full LLM request/response trace. Never raises."""
+    try:
+        import json
+
+        msg_json = json.dumps(request_messages, ensure_ascii=False, default=str)
+        if len(msg_json) > 200_000:
+            msg_json = msg_json[:200_000] + "\n[TRUNCATED]"
+        with Session(engine) as session:
+            trace = LLMTrace(
+                usage_id=usage_id,
+                request_messages=msg_json,
+                response_content=response_content,
+                duration_ms=duration_ms,
+            )
+            session.add(trace)
+            session.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[usage_tracking] save_trace failed for usage %s: %s", usage_id, exc)

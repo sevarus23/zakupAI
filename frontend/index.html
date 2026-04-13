@@ -65,6 +65,15 @@
       <div class="tab" data-tab="regime">
         &#127479;&#127482; Нацрежим
       </div>
+      <div class="sidebar-label" id="sidebar-debug-label" style="display:none">Отладка</div>
+      <div class="tab" data-tab="llm-trace" id="tab-llm-trace-nav" style="display:none">
+        &#128269; LLM Trace
+        <span class="badge">admin</span>
+      </div>
+      <div class="tab" data-tab="llm-sandbox" id="tab-llm-sandbox-nav" style="display:none">
+        &#9881; Sandbox
+        <span class="badge">admin</span>
+      </div>
     </nav>
 
     <!-- ===== MAIN ===== -->
@@ -328,6 +337,66 @@
         </div>
       </div>
 
+      <!-- ==================== TAB 5: LLM TRACE (admin) ==================== -->
+      <div class="tab-content" id="tab-llm-trace">
+        <div class="card section-gap">
+          <div class="card-header">
+            <h3>LLM Trace</h3>
+            <span style="font-size:12px;color:var(--text-secondary)">Цепочка вызовов по закупке</span>
+          </div>
+          <div class="card-body">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input class="form-input" id="trace-purchase-search" placeholder="Поиск по названию закупки..." style="flex:1;min-width:200px">
+              <button class="btn btn-primary btn-sm" id="btn-trace-search">Поиск</button>
+              <button class="btn btn-secondary btn-sm" id="btn-trace-current">Текущая закупка</button>
+            </div>
+            <div id="trace-purchase-list" style="margin-top:12px"></div>
+          </div>
+        </div>
+        <div id="trace-summary" style="display:none"></div>
+        <div id="trace-timeline"></div>
+      </div>
+
+      <!-- ==================== TAB 6: LLM SANDBOX (admin) ==================== -->
+      <div class="tab-content" id="tab-llm-sandbox">
+        <div class="card section-gap">
+          <div class="card-header">
+            <h3>1. Файлы</h3>
+            <span style="font-size:12px;color:var(--text-secondary)">ТЗ и/или КП для тестирования</span>
+          </div>
+          <div class="card-body">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div class="upload-zone" id="sandbox-upload-tz">
+                <div class="icon">&#128196;</div>
+                <div class="label">Техническое задание</div>
+                <div class="hint">PDF, DOCX, TXT</div>
+              </div>
+              <div class="upload-zone" id="sandbox-upload-kp">
+                <div class="icon">&#128203;</div>
+                <div class="label">Коммерческие предложения</div>
+                <div class="hint">PDF, DOCX, TXT &middot; можно несколько</div>
+              </div>
+            </div>
+            <div id="sandbox-files" style="margin-top:12px"></div>
+            <input type="file" id="inp-sandbox-tz" accept=".pdf,.docx,.doc,.txt,.xlsx,.xls" style="display:none">
+            <input type="file" id="inp-sandbox-kp" accept=".pdf,.docx,.doc,.txt,.xlsx,.xls" multiple style="display:none">
+          </div>
+        </div>
+        <div class="card section-gap">
+          <div class="card-header">
+            <h3>2. Режим запуска</h3>
+          </div>
+          <div class="card-body">
+            <div id="sandbox-mode-selector"></div>
+            <div id="sandbox-step-selector" style="display:none;margin-top:12px"></div>
+            <div id="sandbox-run-bar" style="margin-top:12px"></div>
+          </div>
+        </div>
+        <div id="sandbox-stepper" style="display:none"></div>
+        <div id="sandbox-results"></div>
+        <div id="sandbox-controls" style="display:none"></div>
+      </div>
+
     </div>
   </div><!-- /app-layout -->
 
@@ -569,6 +638,9 @@
     var user = Auth.getUser();
     if (user && user.is_admin) {
       document.getElementById('admin-link').classList.remove('hidden');
+      document.getElementById('sidebar-debug-label').style.display = '';
+      document.getElementById('tab-llm-trace-nav').style.display = '';
+      document.getElementById('tab-llm-sandbox-nav').style.display = '';
     }
   </script>
 </body>

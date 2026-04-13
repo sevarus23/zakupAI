@@ -126,7 +126,18 @@ class LLMUsage(SQLModel, table=True):
     request_count: int = Field(default=1)  # for per-request billing (Yandex)
     success: bool = Field(default=True)
     error_message: Optional[str] = None
+    duration_ms: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class LLMTrace(SQLModel, table=True):
+    """Full request/response capture for LLM calls (one-to-one with LLMUsage when tracing is enabled)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    usage_id: int = Field(foreign_key="llmusage.id", index=True, unique=True)
+    request_messages: str  # JSON-serialized list of messages sent to the LLM
+    response_content: Optional[str] = None  # choices[0].message.content
+    duration_ms: Optional[int] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Bid(SQLModel, table=True):

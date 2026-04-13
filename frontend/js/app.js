@@ -2845,6 +2845,548 @@
     if (resetSearchBtn) resetSearchBtn.addEventListener('click', function () { resetTask('supplier_search'); });
   }
 
+  // ===========================================================================
+  // LLM TRACE TAB (admin-only)
+  // ===========================================================================
+
+  var OPERATION_LABELS = {
+    lots_extraction: 'Извлечение лотов',
+    search_queries: 'Поисковые запросы',
+    kp_extraction: 'Парсинг КП',
+    bid_lots_extraction: 'Парсинг КП',
+    perplexity_postprocess: 'Обработка Perplexity',
+    compare_characteristics: 'Сравнение характеристик',
+    supplier_search_perplexity: 'Поиск поставщиков',
+    characteristic_matching: 'Матчинг характеристик',
+    value_compliance: 'Проверка значений',
+    doc_validation: 'Валидация документа',
+    company_validation: 'Валидация компании',
+    summarize_tz: 'Сводка ТЗ',
+    lot_match_classify: 'Классификация лотов',
+    param_match_classify: 'Классификация параметров',
+  };
+
+  var _traceCache = {};
+
+  function _fmtTokens(n) { return n != null ? n.toLocaleString('ru-RU') : '—'; }
+  function _fmtCost(c) { return c != null ? '$' + c.toFixed(4) : '—'; }
+  function _fmtDuration(ms) { return ms != null ? (ms / 1000).toFixed(1) + 's' : '—'; }
+
+  function initLLMTrace() {
+    var user = (typeof Auth !== 'undefined' && Auth.getUser) ? Auth.getUser() : null;
+    if (!user || !user.is_admin) return;
+
+    var searchBtn = $('btn-trace-search');
+    var currentBtn = $('btn-trace-current');
+    var searchInput = $('trace-purchase-search');
+
+    if (searchBtn) searchBtn.addEventListener('click', function () {
+      _searchTracePurchases(searchInput ? searchInput.value : '');
+    });
+    if (currentBtn) currentBtn.addEventListener('click', function () {
+      if (currentPurchase && currentPurchase.id) {
+        _loadPurchaseTrace(currentPurchase.id);
+      } else {
+        showError('Сначала выберите закупку');
+      }
+    });
+    if (searchInput) searchInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') _searchTracePurchases(this.value);
+    });
+
+    _searchTracePurchases('');
+  }
+
+  function _searchTracePurchases(q) {
+    var url = '/admin/trace/purchases';
+    if (q) url += '?q=' + encodeURIComponent(q);
+    API.apiFetch(url).then(function (list) {
+      var el = $('trace-purchase-list');
+      if (!el) return;
+      if (!list || !list.length) {
+        el.innerHTML = '<div class="empty-state">Нет закупок с LLM-вызовами</div>';
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < list.length; i++) {
+        var p = list[i];
+        html += '<div class="lot-item" style="cursor:pointer" onclick="window._loadTraceForPurchase(' + p.id + ')">';
+        html += '<div class="lot-info">';
+        html += '<div style="font-weight:600;font-size:13px">' + escapeHtml(p.name) + '</div>';
+        html += '<div style="font-size:12px;color:var(--text-secondary)">';
+        html += p.call_count + ' вызовов &middot; ' + _fmtTokens(p.total_tokens) + ' токенов';
+        if (p.has_traces) html += ' &middot; <span style="color:var(--success)">trace</span>';
+        html += '</div></div></div>';
+      }
+      el.innerHTML = html;
+    }).catch(function (err) {
+      showError('Ошибка загрузки: ' + err.message);
+    });
+  }
+
+  window._loadTraceForPurchase = function (pid) { _loadPurchaseTrace(pid); };
+
+  function _loadPurchaseTrace(purchaseId) {
+    API.apiFetch('/admin/trace/purchases/' + purchaseId).then(function (data) {
+      _renderTraceSummary(data);
+      _renderTraceTimeline(data);
+    }).catch(function (err) {
+      showError('Ошибка загрузки trace: ' + err.message);
+    });
+  }
+
+  function _renderTraceSummary(data) {
+    var el = $('trace-summary');
+    if (!el) return;
+    var s = data.summary;
+    var ops = {};
+    for (var i = 0; i < data.calls.length; i++) ops[data.calls[i].operation] = true;
+    var pills = '';
+    for (var op in ops) pills += '<span class="trace-op-pill">' + escapeHtml(op) + '</span> ';
+    el.style.display = '';
+    el.innerHTML =
+      '<div class="trace-summary">' +
+        '<div class="trace-summary-stat"><div class="trace-summary-val">' + s.total_calls + '</div><div class="trace-summary-label">Вызовов</div></div>' +
+        '<div class="trace-summary-sep"></div>' +
+        '<div class="trace-summary-stat"><div class="trace-summary-val">' + _fmtTokens(s.total_tokens) + '</div><div class="trace-summary-label">Токенов</div></div>' +
+        '<div class="trace-summary-sep"></div>' +
+        '<div class="trace-summary-stat"><div class="trace-summary-val">' + _fmtCost(s.total_cost_usd) + '</div><div class="trace-summary-label">Стоимость</div></div>' +
+        '<div class="trace-summary-sep"></div>' +
+        '<div class="trace-summary-stat"><div class="trace-summary-val">' + _fmtDuration(s.total_duration_ms) + '</div><div class="trace-summary-label">Время</div></div>' +
+        '<div class="trace-summary-sep"></div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;flex:1">' + pills + '</div>' +
+      '</div>';
+  }
+
+  function _renderTraceTimeline(data) {
+    var el = $('trace-timeline');
+    if (!el) return;
+    var groups = {};
+    var groupOrder = [];
+    for (var i = 0; i < data.calls.length; i++) {
+      var c = data.calls[i];
+      var key = c.task_id || 'no_task';
+      if (!groups[key]) { groups[key] = []; groupOrder.push(key); }
+      groups[key].push(c);
+    }
+    var taskMap = {};
+    for (var t = 0; t < data.tasks.length; t++) taskMap[data.tasks[t].id] = data.tasks[t];
+
+    var html = '';
+    for (var g = 0; g < groupOrder.length; g++) {
+      var gKey = groupOrder[g];
+      var calls = groups[gKey];
+      var task = taskMap[gKey];
+      var taskLabel = task ? 'Task #' + task.id + ' · ' + task.task_type : 'Без задачи';
+      var taskStatus = task ? task.status : '';
+      html += '<div class="trace-task-group"><div class="trace-task-header"><span>' + escapeHtml(taskLabel) + '</span>';
+      if (taskStatus) {
+        var sc = taskStatus === 'completed' ? 'status-active' : taskStatus === 'failed' ? 'status-warning' : 'status-search';
+        html += '<span class="status ' + sc + '"><span class="status-dot"></span>' + taskStatus + '</span>';
+      }
+      html += '</div>';
+      for (var ci = 0; ci < calls.length; ci++) html += _renderTraceCard(calls[ci]);
+      html += '</div>';
+    }
+    el.innerHTML = html || '<div class="empty-state">Нет LLM-вызовов по этой закупке</div>';
+  }
+
+  function _renderTraceCard(call) {
+    var ec = call.success ? '' : ' trace-error';
+    var opLabel = OPERATION_LABELS[call.operation] || call.operation;
+    var h = '<div class="trace-card' + ec + '" id="trace-card-' + call.usage_id + '">';
+    h += '<div class="trace-card-header" onclick="window._toggleTraceCard(' + call.usage_id + ',' + call.has_trace + ')">';
+    h += '<div><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
+    h += '<span style="font-weight:600;font-size:14px">' + escapeHtml(opLabel) + '</span>';
+    h += '<span style="font-size:11px;font-family:monospace;color:var(--text-secondary);background:var(--bg);padding:2px 6px;border-radius:4px">' + escapeHtml(call.operation) + '</span>';
+    if (call.model) h += '<span style="font-size:12px;color:var(--text-secondary);font-family:monospace;background:var(--bg);padding:2px 6px;border-radius:4px">' + escapeHtml(call.model) + '</span>';
+    h += '</div><div class="trace-stats">';
+    h += '<span>' + call.created_at.substring(11, 19) + '</span>';
+    h += '<span class="trace-tokens-in">' + _fmtTokens(call.prompt_tokens) + ' in</span><span style="opacity:0.4">&rarr;</span><span class="trace-tokens-out">' + _fmtTokens(call.completion_tokens) + ' out</span>';
+    h += '<span>' + _fmtCost(call.cost_usd) + '</span><span>' + _fmtDuration(call.duration_ms) + '</span>';
+    h += call.success ? '<span style="color:var(--success)">&#10003;</span>' : '<span style="color:var(--danger);font-weight:500">&#10007;</span>';
+    h += '</div>';
+    if (!call.success && call.error_message) h += '<div style="margin-top:6px;padding:6px 10px;background:var(--danger-bg);border-radius:4px;font-size:12px;color:var(--danger);font-family:monospace">' + escapeHtml(call.error_message) + '</div>';
+    h += '</div><span style="font-size:12px;color:var(--text-secondary)">&#9654;</span></div>';
+    h += '<div class="trace-card-body" id="trace-body-' + call.usage_id + '"></div></div>';
+    return h;
+  }
+
+  window._toggleTraceCard = function (usageId, hasTrace) {
+    var card = $('trace-card-' + usageId);
+    if (!card) return;
+    if (card.classList.contains('expanded')) { card.classList.remove('expanded'); return; }
+    card.classList.add('expanded');
+    var body = $('trace-body-' + usageId);
+    if (!body || body.dataset.loaded) return;
+    if (!hasTrace) {
+      body.innerHTML = '<div class="trace-card-section" style="color:var(--text-secondary);font-size:13px;text-align:center;padding:20px">Трейс недоступен (LLM_TRACE_ENABLED был выключен)</div>';
+      body.dataset.loaded = '1';
+      return;
+    }
+    if (_traceCache[usageId]) { _renderTraceBody(body, _traceCache[usageId]); body.dataset.loaded = '1'; return; }
+    body.innerHTML = '<div class="trace-card-section" style="text-align:center;padding:20px"><div class="spinner"></div> Загрузка...</div>';
+    API.apiFetch('/admin/trace/calls/' + usageId).then(function (trace) {
+      _traceCache[usageId] = trace;
+      _renderTraceBody(body, trace);
+      body.dataset.loaded = '1';
+    }).catch(function (err) {
+      body.innerHTML = '<div class="trace-card-section" style="color:var(--danger)">Ошибка: ' + escapeHtml(err.message) + '</div>';
+    });
+  };
+
+  function _renderTraceBody(body, trace) {
+    var h = '';
+    if (trace.request_messages && trace.request_messages.length) {
+      h += '<div class="trace-card-section"><div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:8px">Request</div>';
+      for (var i = 0; i < trace.request_messages.length; i++) {
+        var msg = trace.request_messages[i];
+        var role = msg.role || 'unknown';
+        h += '<div style="margin-bottom:8px"><div class="trace-role trace-role-' + role + '">' + role + '</div>';
+        h += '<div class="trace-pre">' + escapeHtml(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content, null, 2)) + '</div></div>';
+      }
+      h += '</div>';
+    }
+    if (trace.response_content != null) {
+      h += '<div class="trace-card-section"><div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:8px">Response</div>';
+      h += '<div class="trace-role trace-role-assistant">assistant</div>';
+      var content = trace.response_content;
+      var isJson = false;
+      try { JSON.parse(content); isJson = true; } catch (_) {}
+      h += isJson ? '<div class="trace-pre trace-pre-json">' + escapeHtml(JSON.stringify(JSON.parse(content), null, 2)) + '</div>'
+                  : '<div class="trace-pre">' + escapeHtml(content) + '</div>';
+      h += '</div>';
+    }
+    h += '<div class="trace-card-actions">';
+    h += '<button class="btn btn-ghost btn-sm" onclick="window._copyTraceField(' + trace.usage_id + ',\'request\')">Копировать запрос</button>';
+    h += '<button class="btn btn-ghost btn-sm" onclick="window._copyTraceField(' + trace.usage_id + ',\'response\')">Копировать ответ</button>';
+    h += '</div>';
+    body.innerHTML = h;
+  }
+
+  window._copyTraceField = function (usageId, field) {
+    var trace = _traceCache[usageId];
+    if (!trace) return;
+    var text = field === 'request' ? JSON.stringify(trace.request_messages, null, 2) : (trace.response_content || '');
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { showMessage('Скопировано'); });
+  };
+
+
+  // ===========================================================================
+  // LLM SANDBOX TAB (admin-only)
+  // ===========================================================================
+
+  var _sandboxState = { files: [], mode: 'stepwise', selectedStep: null, steps: [], currentStep: 0, results: [], running: false };
+
+  var SANDBOX_STEPS = [
+    { id: 'lots_extraction', name: 'Извлечение лотов', module: 'M1', input: 'tz', desc: 'Парсинг ТЗ в лоты' },
+    { id: 'search_queries', name: 'Поисковые запросы', module: 'M1', input: 'lots', desc: 'Генерация запросов из лотов' },
+    { id: 'kp_extraction', name: 'Парсинг КП', module: 'M3', input: 'kp', desc: 'Парсинг КП в лоты' },
+    { id: 'compare_characteristics', name: 'Сравнение с ГИСП', module: 'M4', input: 'json', desc: 'Сравнение характеристик с реестром' },
+    { id: 'perplexity_postprocess', name: 'Обработка Perplexity', module: 'M1', input: 'text', desc: 'Извлечение контактов' },
+  ];
+
+  function initLLMSandbox() {
+    var user = (typeof Auth !== 'undefined' && Auth.getUser) ? Auth.getUser() : null;
+    if (!user || !user.is_admin) return;
+    var tzZone = $('sandbox-upload-tz');
+    var kpZone = $('sandbox-upload-kp');
+    if (tzZone) tzZone.addEventListener('click', function () { $('inp-sandbox-tz').click(); });
+    if (kpZone) kpZone.addEventListener('click', function () { $('inp-sandbox-kp').click(); });
+    var inpTz = $('inp-sandbox-tz');
+    if (inpTz) inpTz.addEventListener('change', function () { if (this.files[0]) { _addSandboxFile(this.files[0], 'tz'); this.value = ''; } });
+    var inpKp = $('inp-sandbox-kp');
+    if (inpKp) inpKp.addEventListener('change', function () {
+      var files = Array.from(this.files || []);
+      for (var i = 0; i < files.length; i++) _addSandboxFile(files[i], 'kp');
+      this.value = '';
+    });
+    _renderSandboxModes();
+  }
+
+  function _addSandboxFile(file, type) {
+    var entry = { name: file.name, type: type, text: null, converting: true, size: file.size };
+    _sandboxState.files.push(entry);
+    _renderSandboxFiles();
+    API.convertTechTaskFile(file).then(function (data) {
+      entry.text = data.markdown; entry.converting = false; entry.chars = data.markdown.length;
+      _renderSandboxFiles(); _updateSandboxSteps();
+    }).catch(function (err) {
+      entry.converting = false; entry.error = err.message;
+      _renderSandboxFiles();
+    });
+  }
+
+  function _renderSandboxFiles() {
+    var el = $('sandbox-files');
+    if (!el) return;
+    var h = '';
+    for (var i = 0; i < _sandboxState.files.length; i++) {
+      var f = _sandboxState.files[i];
+      h += '<span class="sandbox-file-chip"><span class="sandbox-file-type sandbox-file-type-' + f.type + '">' + f.type.toUpperCase() + '</span>' + escapeHtml(f.name);
+      if (f.converting) h += ' <span class="spinner" style="width:12px;height:12px"></span>';
+      else if (f.error) h += ' <span style="color:var(--danger);font-size:11px">Ошибка</span>';
+      else if (f.chars) h += ' <span style="font-size:11px;color:var(--text-secondary)">(' + f.chars.toLocaleString('ru-RU') + ' сим.)</span>';
+      h += ' <span style="cursor:pointer;color:var(--text-secondary);font-size:16px" onclick="window._removeSandboxFile(' + i + ')">&times;</span></span>';
+    }
+    el.innerHTML = h;
+  }
+
+  window._removeSandboxFile = function (idx) { _sandboxState.files.splice(idx, 1); _renderSandboxFiles(); _updateSandboxSteps(); };
+
+  function _renderSandboxModes() {
+    var el = $('sandbox-mode-selector');
+    if (!el) return;
+    var modes = [
+      { id: 'pipeline', title: '&#9654; Весь конвейер', desc: 'Все шаги автоматически' },
+      { id: 'single', title: '&#127919; Один шаг', desc: 'Выбрать конкретный шаг' },
+      { id: 'stepwise', title: '&#128694; Пошагово', desc: 'Шаг за шагом с «Дальше»' },
+    ];
+    var h = '<div class="sandbox-mode">';
+    for (var i = 0; i < modes.length; i++) {
+      var m = modes[i];
+      h += '<div class="sandbox-mode-option' + (m.id === _sandboxState.mode ? ' active' : '') + '" onclick="window._setSandboxMode(\'' + m.id + '\')">';
+      h += '<div class="sandbox-mode-title">' + m.title + '</div><div class="sandbox-mode-desc">' + m.desc + '</div></div>';
+    }
+    el.innerHTML = h + '</div>';
+  }
+
+  window._setSandboxMode = function (mode) {
+    _sandboxState.mode = mode;
+    _renderSandboxModes();
+    var stepSel = $('sandbox-step-selector');
+    if (stepSel) stepSel.style.display = mode === 'single' ? '' : 'none';
+    _updateSandboxSteps();
+  };
+
+  function _updateSandboxSteps() {
+    var hasTz = _sandboxState.files.some(function (f) { return f.type === 'tz' && f.text; });
+    var hasKp = _sandboxState.files.some(function (f) { return f.type === 'kp' && f.text; });
+    var anyReady = _sandboxState.files.some(function (f) { return f.text; });
+
+    var available = [];
+    for (var i = 0; i < SANDBOX_STEPS.length; i++) {
+      var s = SANDBOX_STEPS[i];
+      var ok = s.input === 'tz' ? hasTz : s.input === 'kp' ? hasKp : s.input === 'lots' ? hasTz : true;
+      available.push({ step: s, available: ok });
+    }
+
+    if (_sandboxState.mode === 'single') {
+      var stepEl = $('sandbox-step-selector');
+      if (stepEl) {
+        var h = '<div class="sandbox-step-grid">';
+        for (var j = 0; j < available.length; j++) {
+          var a = available[j];
+          h += '<div class="sandbox-step-chip' + (_sandboxState.selectedStep === a.step.id ? ' selected' : '') + (a.available ? '' : ' dimmed') + '" onclick="window._selectSandboxStep(\'' + a.step.id + '\')">';
+          h += '<div class="sandbox-step-module" style="background:var(--accent-light);color:var(--accent)">' + a.step.module + '</div>';
+          h += '<div class="sandbox-step-name">' + escapeHtml(a.step.name) + '</div>';
+          h += '<div class="sandbox-step-desc">' + escapeHtml(a.step.desc) + '</div></div>';
+        }
+        stepEl.innerHTML = h + '</div>';
+      }
+    }
+
+    var pipeline = [];
+    if (hasTz) { pipeline.push('lots_extraction'); pipeline.push('search_queries'); }
+    if (hasKp) pipeline.push('kp_extraction');
+    _sandboxState.steps = pipeline;
+
+    var runBar = $('sandbox-run-bar');
+    if (runBar) {
+      if (!anyReady) {
+        runBar.innerHTML = '<div style="color:var(--text-secondary);font-size:13px">Загрузите файл для начала</div>';
+      } else if (_sandboxState.mode === 'single') {
+        var sn = _sandboxState.selectedStep ? (OPERATION_LABELS[_sandboxState.selectedStep] || _sandboxState.selectedStep) : '';
+        runBar.innerHTML = '<button class="btn btn-primary" ' + (_sandboxState.selectedStep ? '' : 'disabled') + ' onclick="window._runSandboxSingle()">&#9654; Запустить' + (sn ? ': ' + sn : '') + '</button>';
+      } else {
+        var lb = _sandboxState.mode === 'pipeline' ? 'Запустить конвейер' : 'Запустить пошагово';
+        runBar.innerHTML = '<button class="btn btn-primary" onclick="window._runSandboxPipeline()">&#9654; ' + lb + '</button>' +
+          '<span style="font-size:12px;color:var(--text-secondary);margin-left:8px">' + pipeline.length + ' шагов: ' + pipeline.join(' &rarr; ') + '</span>';
+      }
+    }
+  }
+
+  window._selectSandboxStep = function (stepId) { _sandboxState.selectedStep = stepId; _updateSandboxSteps(); };
+
+  window._runSandboxSingle = function () {
+    var step = _sandboxState.selectedStep;
+    if (!step) return;
+    _runSandboxStep(step, _getSandboxInput(step), null, function (res) {
+      _sandboxState.results = [res]; _renderSandboxResults();
+    });
+  };
+
+  window._runSandboxPipeline = function () {
+    _sandboxState.results = []; _sandboxState.currentStep = 0; _sandboxState.running = true;
+    if (_sandboxState.mode === 'pipeline') _runNextPipelineStep(); else _runStepwiseStep();
+  };
+
+  function _runNextPipelineStep() {
+    var idx = _sandboxState.currentStep;
+    if (idx >= _sandboxState.steps.length) { _sandboxState.running = false; _renderSandboxResults(); _renderSandboxStepper(); return; }
+    _renderSandboxStepper();
+    _runSandboxStep(_sandboxState.steps[idx], _getStepInput(idx), null, function (res) {
+      _sandboxState.results.push(res); _sandboxState.currentStep++; _renderSandboxResults(); _runNextPipelineStep();
+    });
+  }
+
+  function _runStepwiseStep() {
+    var idx = _sandboxState.currentStep;
+    if (idx >= _sandboxState.steps.length) { _sandboxState.running = false; _renderSandboxControls(); return; }
+    _renderSandboxStepper(); _renderSandboxControls();
+    _runSandboxStep(_sandboxState.steps[idx], _getStepInput(idx), null, function (res) {
+      _sandboxState.results.push(res); _sandboxState.running = false;
+      _renderSandboxResults(); _renderSandboxStepper(); _renderSandboxControls();
+    });
+  }
+
+  window._sandboxNext = function () { _sandboxState.currentStep++; _sandboxState.running = true; _runStepwiseStep(); };
+
+  window._sandboxEdit = function (idx) {
+    var res = _sandboxState.results[idx];
+    if (!res) return;
+    var el = $('sandbox-results');
+    if (!el) return;
+    var json = JSON.stringify(res.result, null, 2);
+    el.innerHTML += '<div class="sandbox-result" style="border-left-color:var(--warning)">' +
+      '<div style="padding:12px 16px"><span style="font-weight:600">' + escapeHtml(res.step) + '</span> — <span style="color:var(--warning)">редактирование</span></div>' +
+      '<div style="padding:0 16px 12px"><textarea class="sandbox-edit-area" id="sandbox-edit-textarea">' + escapeHtml(json) + '</textarea>' +
+      '<div id="sandbox-edit-validation" style="font-size:11px;margin-top:4px;color:var(--success)">JSON валиден &#10003;</div></div>' +
+      '<div style="padding:8px 16px;border-top:1px solid var(--border);background:#fafbfc;display:flex;gap:8px;justify-content:flex-end">' +
+      '<button class="btn btn-secondary btn-sm" onclick="window._cancelSandboxEdit()">Отменить</button>' +
+      '<button class="btn btn-primary" onclick="window._saveSandboxEdit(' + idx + ')">Сохранить и продолжить &#8594;</button></div></div>';
+    var ta = $('sandbox-edit-textarea');
+    if (ta) ta.addEventListener('input', function () {
+      var val = $('sandbox-edit-validation');
+      try { JSON.parse(this.value); if (val) { val.style.color = 'var(--success)'; val.innerHTML = 'JSON валиден &#10003;'; } }
+      catch (e) { if (val) { val.style.color = 'var(--danger)'; val.textContent = 'Ошибка: ' + e.message; } }
+    });
+  };
+
+  window._cancelSandboxEdit = function () { _renderSandboxResults(); _renderSandboxControls(); };
+
+  window._saveSandboxEdit = function (idx) {
+    var ta = $('sandbox-edit-textarea');
+    if (!ta) return;
+    try {
+      _sandboxState.results[idx].result = JSON.parse(ta.value);
+      _sandboxState.results[idx].edited = true;
+      _renderSandboxResults(); window._sandboxNext();
+    } catch (e) { showError('Невалидный JSON: ' + e.message); }
+  };
+
+  function _getSandboxInput(step) {
+    var tzFile = _sandboxState.files.find(function (f) { return f.type === 'tz' && f.text; });
+    var kpFile = _sandboxState.files.find(function (f) { return f.type === 'kp' && f.text; });
+    if (step === 'lots_extraction' || step === 'search_queries') return tzFile ? tzFile.text : '';
+    if (step === 'kp_extraction') return kpFile ? kpFile.text : '';
+    return '';
+  }
+
+  function _getStepInput(idx) {
+    var step = _sandboxState.steps[idx];
+    if (idx > 0 && _sandboxState.results[idx - 1] && _sandboxState.results[idx - 1].result) {
+      var prev = _sandboxState.results[idx - 1].result;
+      if (step === 'search_queries' && prev.lots) {
+        return prev.lots.map(function (l) { return l.name + (l.count ? ' (' + l.count + ' ' + (l.units || 'шт') + ')' : ''); }).join('\n');
+      }
+    }
+    return _getSandboxInput(step);
+  }
+
+  function _runSandboxStep(step, inputText, inputJson, callback) {
+    var fd = new FormData();
+    fd.append('step', step);
+    if (inputText) fd.append('input_text', inputText);
+    if (inputJson) fd.append('input_json', inputJson);
+    API.apiFetch('/admin/sandbox/run', { method: 'POST', body: fd }).then(callback).catch(function (err) {
+      callback({ step: step, success: false, result: null, usage: {}, trace: null, error: err.message });
+    });
+  }
+
+  function _renderSandboxStepper() {
+    var el = $('sandbox-stepper');
+    if (!el) return;
+    if (!_sandboxState.steps.length) { el.style.display = 'none'; return; }
+    el.style.display = '';
+    var h = '<div class="sandbox-stepper">';
+    for (var i = 0; i < _sandboxState.steps.length; i++) {
+      var st = i < _sandboxState.currentStep ? 'done' : i === _sandboxState.currentStep ? (_sandboxState.running ? 'active' : (_sandboxState.results[i] ? 'done' : 'active')) : 'pending';
+      if (i > 0) h += '<span class="stepper-arrow">&rarr;</span>';
+      h += '<div class="stepper-step ' + st + '"><div class="stepper-dot">' + (st === 'done' ? '&#10003;' : (i + 1)) + '</div>';
+      h += '<span class="stepper-label">' + escapeHtml(OPERATION_LABELS[_sandboxState.steps[i]] || _sandboxState.steps[i]) + '</span></div>';
+    }
+    el.innerHTML = h + '</div>';
+  }
+
+  function _renderSandboxResults() {
+    var el = $('sandbox-results');
+    if (!el) return;
+    var h = '';
+    for (var i = 0; i < _sandboxState.results.length; i++) {
+      var r = _sandboxState.results[i];
+      var opLabel = OPERATION_LABELS[r.step] || r.step;
+      h += '<div class="sandbox-result' + (r.success ? '' : ' error') + ' expanded">';
+      h += '<div class="sandbox-result-header" onclick="this.parentElement.classList.toggle(\'expanded\')"><div>';
+      h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-weight:600">' + escapeHtml(opLabel) + '</span>';
+      h += '<span style="font-family:monospace;font-size:11px;color:var(--text-secondary)">' + escapeHtml(r.step) + '</span>';
+      if (r.edited) h += '<span style="font-size:11px;color:var(--warning);font-weight:500">&#9998; отредактировано</span>';
+      h += '</div>';
+      if (r.usage) {
+        h += '<div class="trace-stats">';
+        if (r.usage.model) h += '<span>' + escapeHtml(r.usage.model) + '</span>';
+        h += '<span class="trace-tokens-in">' + _fmtTokens(r.usage.prompt_tokens) + ' in</span><span style="opacity:0.4">&rarr;</span>';
+        h += '<span class="trace-tokens-out">' + _fmtTokens(r.usage.completion_tokens) + ' out</span>';
+        h += '<span>' + _fmtCost(r.usage.cost_usd) + '</span><span>' + _fmtDuration(r.usage.duration_ms) + '</span></div>';
+      }
+      h += '</div><span style="font-size:12px;color:var(--text-secondary)">&#9654;</span></div>';
+      h += '<div class="sandbox-result-body">';
+      if (r.trace && r.trace.request_messages) {
+        h += '<div class="trace-card-section"><div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:8px">Request</div>';
+        for (var m = 0; m < r.trace.request_messages.length; m++) {
+          var msg = r.trace.request_messages[m];
+          h += '<div style="margin-bottom:8px"><div class="trace-role trace-role-' + (msg.role || 'user') + '">' + (msg.role || 'user') + '</div>';
+          h += '<div class="trace-pre">' + escapeHtml(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content, null, 2)) + '</div></div>';
+        }
+        h += '</div>';
+      }
+      h += '<div class="trace-card-section"><div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:8px">Результат</div>';
+      if (r.success && r.result != null) {
+        h += '<div class="trace-pre trace-pre-json">' + escapeHtml(typeof r.result === 'string' ? r.result : JSON.stringify(r.result, null, 2)) + '</div>';
+      } else if (r.error) {
+        h += '<div style="color:var(--danger);font-family:monospace;font-size:13px">' + escapeHtml(r.error) + '</div>';
+      }
+      h += '</div></div></div>';
+    }
+    el.innerHTML = h;
+  }
+
+  function _renderSandboxControls() {
+    var el = $('sandbox-controls');
+    if (!el) return;
+    if (_sandboxState.mode !== 'stepwise' || !_sandboxState.steps.length) { el.style.display = 'none'; return; }
+    el.style.display = '';
+    var idx = _sandboxState.currentStep, total = _sandboxState.steps.length;
+    var isDone = idx >= total;
+    var canNext = !_sandboxState.running && _sandboxState.results.length > 0 && _sandboxState.results.length === idx && !isDone;
+    var tT = 0, tC = 0, tD = 0;
+    for (var i = 0; i < _sandboxState.results.length; i++) {
+      var u = _sandboxState.results[i].usage || {};
+      tT += u.total_tokens || 0; tC += u.cost_usd || 0; tD += u.duration_ms || 0;
+    }
+    var h = '<div class="sandbox-sticky-controls"><div style="display:flex;gap:12px;align-items:center;font-size:12px;color:var(--text-secondary)">';
+    h += '<span>Шаг ' + Math.min(idx + 1, total) + ' из ' + total + '</span><span>&middot;</span>';
+    h += '<span>' + _fmtTokens(tT) + ' токенов</span><span>&middot;</span><span>' + _fmtCost(tC) + '</span><span>&middot;</span><span>' + _fmtDuration(tD) + '</span>';
+    h += '</div><div style="display:flex;gap:8px;align-items:center">';
+    if (canNext) h += '<button class="btn btn-secondary btn-sm" onclick="window._sandboxEdit(' + (_sandboxState.results.length - 1) + ')">&#9998; Редактировать</button>';
+    if (isDone) h += '<button class="btn btn-primary" disabled>&#10003; Завершено</button>';
+    else if (_sandboxState.running) h += '<button class="btn btn-primary" disabled><span class="spinner" style="width:14px;height:14px"></span> Выполняется...</button>';
+    else if (canNext) h += '<button class="btn btn-primary" onclick="window._sandboxNext()">Дальше &#8594;</button>';
+    h += '</div></div>';
+    el.innerHTML = h;
+  }
+
+
   document.addEventListener('DOMContentLoaded', function () {
     initModals();
     initTabs();
@@ -2861,6 +3403,8 @@
     initComparison();
     initRegime();
     initLotsDiagnostics();
+    initLLMTrace();
+    initLLMSandbox();
     loadPurchases();
     loadDashboard();
   });

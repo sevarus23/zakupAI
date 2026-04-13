@@ -43,12 +43,13 @@ import asyncio
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
-from ..usage_tracking import record_usage
+from ..usage_tracking import record_usage, save_trace
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,9 @@ _DEFAULT_MODEL = "google/gemini-2.0-flash-001"
 # (~120 s on big TZs); search-queries are usually under 30 s. Individual
 # call sites may pass their own timeout.
 _DEFAULT_TIMEOUT = 180.0
+
+# When True, full request/response is saved to LLMTrace table for debugging.
+_TRACE_ENABLED = os.getenv("LLM_TRACE_ENABLED", "false").lower() == "true"
 
 
 # ---------------------------------------------------------------------------
@@ -225,9 +229,11 @@ def chat_completion(
         request_kwargs["max_completion_tokens"] = max_completion_tokens
 
     channel = _channel_for(cfg)
+    t0 = time.monotonic()
     try:
         response = client.chat.completions.create(**request_kwargs)
     except Exception as exc:  # noqa: BLE001
+        duration_ms = int((time.monotonic() - t0) * 1000)
         logger.warning("[llm:%s] request failed: %s", task, exc)
         record_usage(
             channel=channel,
@@ -235,17 +241,32 @@ def chat_completion(
             model=cfg.model,
             success=False,
             error_message=str(exc)[:500],
+            duration_ms=duration_ms,
             **(usage_ctx or {}),
         )
         raise
 
-    record_usage(
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    usage_id = record_usage(
         channel=channel,
         operation=task,
         model=cfg.model,
         response=response,
+        duration_ms=duration_ms,
         **(usage_ctx or {}),
     )
+
+    if _TRACE_ENABLED and usage_id:
+        resp_content = None
+        if response.choices:
+            resp_content = getattr(response.choices[0].message, "content", None)
+        save_trace(
+            usage_id=usage_id,
+            request_messages=messages,
+            response_content=resp_content,
+            duration_ms=duration_ms,
+        )
+
     return response
 
 
