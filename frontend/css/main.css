@@ -258,7 +258,7 @@ body {
   padding: 24px 32px;
   flex: 1;
   min-width: 0;
-  max-width: 1200px;
+  max-width: 1400px;
 }
 
 .tab-content { display: none; }
@@ -721,14 +721,14 @@ body {
 
 .regime-checks {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
 
 .regime-check {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .regime-check-label {
@@ -1914,7 +1914,7 @@ input[type="checkbox"] {
 
   /* Regime cards */
   .regime-checks {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .regime-card { padding: 12px; }
