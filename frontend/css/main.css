@@ -840,7 +840,11 @@ body {
 .gisp-row-wording td:first-child { border-left: 3px solid var(--warning); }
 .gisp-row-missing td:first-child { border-left: 3px solid #9ca3af; }
 
-.gisp-status-cell { white-space: nowrap; }
+.gisp-row-ok { background: var(--success-bg); }
+.gisp-row-mismatch { background: var(--danger-bg); }
+.gisp-row-wording { background: var(--warning-bg); }
+
+.gisp-status-cell { white-space: nowrap; font-weight: 600; }
 .gisp-row-ok .gisp-status-cell { color: var(--success); }
 .gisp-row-mismatch .gisp-status-cell { color: var(--danger); }
 .gisp-row-wording .gisp-status-cell { color: var(--warning); }
@@ -854,9 +858,11 @@ body {
   margin-top: 2px;
 }
 
-/* When GISP details are open, span full width of the grid */
+/* When GISP details are open, span full width and use white background */
 .regime-check:has(.gisp-details.open) {
   grid-column: 1 / -1;
+  background: var(--card);
+  border: 1px solid var(--border);
 }
 
 /* Inline upload status */
