@@ -138,6 +138,7 @@
         var panel = $('tab-' + tabId);
         if (panel) panel.classList.add('active');
         if (tabId === 'dashboard') loadDashboard();
+        if (tabId === 'llm-trace') _searchTracePurchases($('trace-purchase-search') ? $('trace-purchase-search').value : '');
       });
     }
   }
@@ -2024,14 +2025,13 @@
     var total = files.length;
     var uploaded = 0;
     var errors = [];
-    _setRegimeUploadStatus('Загрузка ' + total + ' КП...', 'info');
-
     for (var i = 0; i < total; i++) {
       var file = files[i];
       try {
         _setRegimeUploadStatus('Конвертация ' + (i + 1) + '/' + total + ': ' + file.name, 'info');
         var converted = await API.convertTechTaskFile(file, currentPurchase ? currentPurchase.id : null);
         if (converted && converted.markdown) {
+          _setRegimeUploadStatus('Сохранение ' + (i + 1) + '/' + total + ': ' + file.name, 'info');
           var supplierName = file.name.replace(/\.[^.]+$/, '');
           await API.apiFetch('/purchases/' + currentPurchase.id + '/bids', {
             method: 'POST',
@@ -2042,18 +2042,22 @@
           });
           trackFile(currentPurchase.id, file.name, 'regime_kp');
           uploaded++;
+          _setRegimeUploadStatus('Загружено ' + uploaded + '/' + total, 'info');
         }
       } catch (e) {
         errors.push(file.name + ': ' + e.message);
       }
     }
     this.value = '';
+    _setRegimeUploadStatus('Обновление списка КП...', 'info');
     await loadBids();
     renderRegimeBids();
     if (errors.length > 0) {
       _setRegimeUploadStatus('Ошибки: ' + errors.join('; '), 'error');
+    } else {
+      _setRegimeUploadStatus('Загружено ' + uploaded + ' КП', 'clear');
+      showMessage('Загружено ' + uploaded + ' КП');
     }
-    // Status will be shown by renderRegimeBids via polling (spinner on cards)
   }
 
   function loadRegimeCheck() {
