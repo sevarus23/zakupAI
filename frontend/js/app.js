@@ -2873,6 +2873,7 @@
     summarize_tz: 'Сводка ТЗ',
     lot_match_classify: 'Классификация лотов',
     param_match_classify: 'Классификация параметров',
+    pdf_conversion: 'Распознавание PDF',
   };
 
   var _traceCache = {};

@@ -40,17 +40,29 @@ async def convert_document(file: UploadFile = File(...)) -> dict:
         temp_path.write_bytes(content)
 
         try:
-            markdown = convert_to_markdown(temp_path)
+            result = convert_to_markdown(temp_path)
         except Exception as exc:
             print(f"[doc-to-md] conversion_exception: {exc}", flush=True)
             print(f"[doc-to-md] conversion_traceback\n{traceback.format_exc()}", flush=True)
             raise HTTPException(status_code=500, detail=f"Conversion failed: {exc}") from exc
 
+    # convert_to_markdown returns dict {"markdown": str, "usage": dict} for PDF,
+    # or plain str for other formats
+    usage = None
+    if isinstance(result, dict):
+        markdown = result.get("markdown", "")
+        usage = result.get("usage")
+    else:
+        markdown = result
+
     markdown = markdown.strip()
     if not markdown:
         raise HTTPException(status_code=400, detail="Conversion produced empty markdown")
 
-    return {
+    response = {
         "filename": file.filename,
         "markdown": markdown,
     }
+    if usage:
+        response["usage"] = usage
+    return response

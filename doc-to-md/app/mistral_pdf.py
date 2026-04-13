@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -74,9 +75,12 @@ def run_pipeline(file_path: str, update_status, options, page_range):
         f"[mistral-ocr] request model={model} pages={page_start}-{page_end} payload_keys={list(payload.keys())}"
     )
     print(f"[mistral-ocr] raw_request={request_text}")
-    response = requests.post(endpoint, headers=headers, json=payload, timeout=180)
 
-    print(f"[mistral-ocr] status_code={response.status_code}")
+    t0 = time.monotonic()
+    response = requests.post(endpoint, headers=headers, json=payload, timeout=180)
+    duration_ms = int((time.monotonic() - t0) * 1000)
+
+    print(f"[mistral-ocr] status_code={response.status_code} duration_ms={duration_ms}")
     print(f"[mistral-ocr] raw_response={response.text}")
 
     if response.status_code >= 400:
@@ -85,12 +89,27 @@ def run_pipeline(file_path: str, update_status, options, page_range):
         )
 
     try:
-        payload = response.json()
+        resp_payload = response.json()
     except Exception as exc:  # noqa: BLE001
         print(f"[mistral-ocr] json_parse_exception: {exc}")
         raise MistralOcrError(f"Invalid JSON in Mistral OCR response: {exc}") from exc
 
-    markdown = _extract_markdown_from_payload(payload)
+    markdown = _extract_markdown_from_payload(resp_payload)
+
+    # Extract usage if Mistral returns it
+    usage = resp_payload.get("usage") or {}
+    pages_list = resp_payload.get("pages")
+    pages_count = len(pages_list) if isinstance(pages_list, list) else None
 
     update_status("Mistral OCR pipeline completed.")
-    return markdown
+    return {
+        "markdown": markdown,
+        "usage": {
+            "model": model,
+            "duration_ms": duration_ms,
+            "pages_count": pages_count,
+            "prompt_tokens": usage.get("prompt_tokens") or usage.get("input_tokens"),
+            "completion_tokens": usage.get("completion_tokens") or usage.get("output_tokens"),
+            "total_tokens": usage.get("total_tokens"),
+        },
+    }

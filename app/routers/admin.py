@@ -459,6 +459,32 @@ def get_call_trace(
 # ---------------------------------------------------------------------------
 
 
+@router.post("/track-conversion")
+def track_conversion_usage(
+    payload: dict,
+    _admin: User = Depends(get_admin_user),
+) -> dict:
+    """Record doc-to-md (Mistral OCR) usage from frontend calls."""
+    from ..usage_tracking import record_usage
+
+    usage = payload.get("usage") or {}
+    if not usage:
+        return {"ok": False, "reason": "no usage data"}
+
+    record_usage(
+        channel="mistral_ocr",
+        operation="pdf_conversion",
+        model=usage.get("model"),
+        duration_ms=usage.get("duration_ms"),
+        prompt_tokens=usage.get("prompt_tokens"),
+        completion_tokens=usage.get("completion_tokens"),
+        total_tokens=usage.get("total_tokens"),
+        purchase_id=payload.get("purchase_id"),
+        request_count=1,
+    )
+    return {"ok": True}
+
+
 @router.post("/sandbox/convert")
 async def sandbox_convert_file(
     file: UploadFile = File(...),
@@ -466,16 +492,36 @@ async def sandbox_convert_file(
 ) -> dict:
     """Convert a PDF/DOCX file to text for sandbox testing."""
     import httpx
+    from ..usage_tracking import record_usage
 
     file_bytes = await file.read()
     form_data = {"file": (file.filename, file_bytes, file.content_type or "application/octet-stream")}
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post("http://doc-to-md:3000/convert", files=form_data)
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post("http://doc-to-md:8001/convert", files=form_data)
             resp.raise_for_status()
             data = resp.json()
             markdown = data.get("markdown", "")
-            return {"markdown": markdown, "chars": len(markdown)}
+            usage = data.get("usage") or {}
+
+            # Record usage for PDF conversion (Mistral OCR)
+            if usage:
+                record_usage(
+                    channel="mistral_ocr",
+                    operation="pdf_conversion",
+                    model=usage.get("model"),
+                    duration_ms=usage.get("duration_ms"),
+                    prompt_tokens=usage.get("prompt_tokens"),
+                    completion_tokens=usage.get("completion_tokens"),
+                    total_tokens=usage.get("total_tokens"),
+                    request_count=1,
+                )
+
+            return {
+                "markdown": markdown,
+                "chars": len(markdown),
+                "usage": usage if usage else None,
+            }
     except Exception as exc:
         logger.warning("[sandbox] convert failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"Conversion failed: {exc}")

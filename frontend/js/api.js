@@ -123,7 +123,17 @@
       throw err;
     }
 
-    return response.json();
+    var data = await response.json();
+
+    // Track Mistral OCR usage if returned by doc-to-md
+    if (data && data.usage) {
+      apiFetch('/admin/track-conversion', {
+        method: 'POST',
+        body: { usage: data.usage },
+      }).catch(function () { /* ignore tracking errors */ });
+    }
+
+    return data;
   }
 
   window.API = {

@@ -222,8 +222,13 @@ def convert_to_markdown(path: Path, update_status: Callable[[str], None] | None 
     if suffix == ".pdf":
         update_status("PDF conversion started.")
         page_range = _build_page_range(path)
-        markdown = run_pdf_pipeline(str(path), update_status, {}, page_range)
-        print(f"[doc-to-md] converted_markdown_pdf={markdown}")
-        return markdown
+        result = run_pdf_pipeline(str(path), update_status, {}, page_range)
+        # run_pdf_pipeline now returns {"markdown": str, "usage": dict}
+        if isinstance(result, dict):
+            print(f"[doc-to-md] converted_markdown_pdf len={len(result.get('markdown', ''))}")
+            return result
+        # Fallback for plain string
+        print(f"[doc-to-md] converted_markdown_pdf={result}")
+        return result
 
     raise ValueError(f"Unsupported format: {suffix}")
