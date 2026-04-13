@@ -1917,8 +1917,7 @@
     if (!container) return;
     if (!currentBids || currentBids.length === 0) {
       container.innerHTML =
-        '<div class="upload-zone" id="regime-kp-zone">' +
-        '<div class="icon">&#128196;</div>' +
+        '<div class="upload-zone" id="regime-kp-zone" style="padding:16px">' +
         '<div class="label">Загрузить КП для проверки</div>' +
         '<div class="hint" id="regime-kp-hint">pdf, xlsx, doc, docx — можно несколько файлов</div>' +
         '<input type="file" id="inp-regime-kp-file" accept=".pdf,.xlsx,.doc,.docx" multiple style="display:none">' +
@@ -1926,8 +1925,8 @@
       _bindRegimeUpload();
       return;
     }
-    var html = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text-secondary)">КП для проверки (' + currentBids.length + '):</div>';
-    html += '<div class="proposals-grid">';
+    var html = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">';
+    html += '<span style="font-size:12px;font-weight:500;color:var(--text-secondary)">КП (' + currentBids.length + '):</span>';
     var totalLots = 0;
     var hasExtracting = false;
     for (var i = 0; i < currentBids.length; i++) {
@@ -1937,37 +1936,31 @@
       var statusIcon, lotLabel;
       if (lotCount > 0) {
         statusIcon = '<span style="color:var(--success)">&#10003;</span>';
-        lotLabel = lotCount + ' позици' + (lotCount === 1 ? 'я' : lotCount < 5 ? 'и' : 'й');
+        lotLabel = lotCount + ' поз.';
       } else {
-        // 0 lots — either extracting or failed. Check age: if < 3 min, assume extracting
         var ageMs = Date.now() - new Date(bid.created_at).getTime();
         if (ageMs < 3 * 60 * 1000) {
-          statusIcon = '<span class="spinner" style="width:12px;height:12px;border-width:1.5px;display:inline-block;vertical-align:middle"></span>';
-          lotLabel = 'Распознавание позиций...';
+          statusIcon = '<span class="spinner" style="width:10px;height:10px;border-width:1.5px;display:inline-block;vertical-align:middle"></span>';
+          lotLabel = '...';
           hasExtracting = true;
         } else {
           statusIcon = '<span style="color:var(--danger)">&#10007;</span>';
-          lotLabel = 'Нет позиций';
+          lotLabel = '0 поз.';
         }
       }
-      html += '<div class="proposal-card" style="cursor:default">' +
-        '<div class="proposal-supplier">' + statusIcon + ' ' + escapeHtml(bid.supplier_name || 'Поставщик') + '</div>' +
-        '<div class="proposal-date">' + formatDate(bid.created_at) + '</div>' +
-        '<div class="proposal-items">' + lotLabel + '</div>' +
-        '</div>';
+      html += '<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--card);border:1px solid var(--border);border-radius:6px;font-size:12px">' +
+        statusIcon + ' <span style="font-weight:500">' + escapeHtml(bid.supplier_name || 'Поставщик') + '</span>' +
+        '<span style="color:var(--text-secondary)">' + lotLabel + '</span></span>';
     }
-    // Upload zone card
-    html += '<div class="proposal-add" id="regime-kp-upload-card"><div class="plus">+</div><div>Загрузить КП</div><div style="font-size:11px">pdf, xlsx, doc, docx</div>' +
-      '<input type="file" id="inp-regime-kp-file" accept=".pdf,.xlsx,.doc,.docx" multiple style="display:none">' +
-      '</div>';
+    // Compact upload button
+    html += '<span id="regime-kp-upload-card" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px dashed var(--border);border-radius:6px;font-size:12px;cursor:pointer;color:var(--text-secondary);transition:all 0.15s" onmouseover="this.style.borderColor=\'var(--accent)\';this.style.color=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--text-secondary)\'">' +
+      '+ КП<input type="file" id="inp-regime-kp-file" accept=".pdf,.xlsx,.doc,.docx" multiple style="display:none"></span>';
     html += '</div>';
     if (totalLots > 0) {
-      html += '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Всего ' + totalLots + ' товар' + (totalLots === 1 ? '' : totalLots < 5 ? 'а' : 'ов') + ' будет проверено</div>';
-    } else if (!hasExtracting) {
-      html += '<div style="font-size:12px;color:var(--danger);margin-top:4px">Нет распознанных позиций. Сначала запустите распознавание в «Письма и КП».</div>';
+      html += '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">Всего ' + totalLots + ' товар' + (totalLots === 1 ? '' : totalLots < 5 ? 'а' : 'ов') + ' будет проверено</div>';
     }
     if (hasExtracting) {
-      html += '<div style="font-size:12px;color:var(--accent);margin-top:4px;display:flex;align-items:center;gap:6px"><span class="spinner" style="width:12px;height:12px;border-width:1.5px;display:inline-block;vertical-align:middle"></span> Идёт распознавание позиций из КП... Подождите.</div>';
+      html += '<div style="font-size:11px;color:var(--accent);margin-top:2px;display:flex;align-items:center;gap:4px"><span class="spinner" style="width:10px;height:10px;border-width:1.5px;display:inline-block;vertical-align:middle"></span> Распознавание позиций...</div>';
     }
     html += '<div id="regime-upload-status"></div>';
     container.innerHTML = html;
