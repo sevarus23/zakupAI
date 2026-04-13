@@ -506,7 +506,31 @@ def _build_characteristic_rows(
     matched_map: Dict[int, Dict] = {}
     used_bid_ids: set[int] = set()
 
+    # Phase 1: Exact name matching (no LLM needed)
+    # Normalize name for comparison: lowercase, strip whitespace
+    bid_by_name: Dict[str, list] = {}
+    for bp in bid_params_indexed:
+        norm = (bp.get("name") or "").strip().lower()
+        if norm:
+            bid_by_name.setdefault(norm, []).append(bp)
+
+    for lot_param in lot_params_indexed:
+        lot_name_norm = (lot_param.get("name") or "").strip().lower()
+        if not lot_name_norm:
+            continue
+        candidates = bid_by_name.get(lot_name_norm, [])
+        for bp in candidates:
+            if bp["id"] not in used_bid_ids:
+                matched_map[lot_param["id"]] = bp
+                used_bid_ids.add(bp["id"])
+                break
+
+    # Phase 2: Embedding + LLM for remaining unmatched params
+    unmatched_lot_ids = [lp["id"] for lp in lot_params_indexed if lp["id"] not in matched_map]
+
     for idx, lot_param in enumerate(lot_params_indexed):
+        if lot_param["id"] in matched_map:
+            continue  # Already matched in phase 1
         scored = []
         for bid_idx, bid_param in enumerate(bid_params_indexed):
             if bid_param["id"] in used_bid_ids:
@@ -514,7 +538,6 @@ def _build_characteristic_rows(
             similarity = _cosine_similarity(lot_vectors[idx], bid_vectors[bid_idx])
             scored.append((similarity, bid_param["id"]))
         scored.sort(key=lambda item: item[0], reverse=True)
-        # Take top-5 candidates (was 3) to improve recall for large param sets
         top_candidate_ids = [item[1] for item in scored[:5]]
         top_candidates = [bid_by_id[candidate_id] for candidate_id in top_candidate_ids]
         if not top_candidates:
