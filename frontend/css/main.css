@@ -703,15 +703,15 @@ body {
 .regime-card {
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
 }
 
 .regime-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .regime-product {
@@ -721,7 +721,7 @@ body {
 
 .regime-checks {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1.2fr repeat(3, 1fr);
   gap: 8px;
 }
 
@@ -1914,7 +1914,7 @@ input[type="checkbox"] {
 
   /* Regime cards */
   .regime-checks {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr 1fr;
   }
 
   .regime-card { padding: 12px; }

@@ -2304,25 +2304,27 @@
       else if (item.overall_status === 'error') { statusClass = 'status-search'; statusLabel = 'Не соответствует'; }
       else if (item.overall_status === 'not_found') { statusClass = 'status-draft'; statusLabel = 'Не найден'; }
 
-      html += '<div class="regime-card"><div class="regime-card-header"><div>';
-      html += '<div class="regime-product">' + escapeHtml(item.product_name || 'Товар') + '</div>';
-      if (item.registry_number) html += '<div style="font-size:12px;color:var(--text-secondary);">Реестровый номер: ' + escapeHtml(item.registry_number) + '</div>';
-      if (item.okpd2_code) html += '<div style="font-size:12px;color:var(--text-secondary);">ОКПД2: ' + escapeHtml(item.okpd2_code) + '</div>';
-      html += '</div>';
-      html += '<span class="status ' + statusClass + '"><span class="status-dot"></span> ' + statusLabel + '</span>';
-      html += '</div><div class="regime-checks">';
+      html += '<div class="regime-card"><div class="regime-checks">';
 
-      // Registry PP 719
+      // Column 1: Product info
+      html += '<div class="regime-check" style="background:none;padding:4px 8px">';
+      html += '<div class="regime-product" style="font-size:13px">' + escapeHtml(item.product_name || 'Товар') + '</div>';
+      if (item.registry_number) html += '<div style="font-size:11px;color:var(--text-secondary)">№ ' + escapeHtml(item.registry_number) + '</div>';
+      if (item.okpd2_code) html += '<div style="font-size:11px;color:var(--text-secondary)">' + escapeHtml(item.okpd2_code) + '</div>';
+      html += '<span class="status ' + statusClass + '" style="margin-top:4px;font-size:11px"><span class="status-dot"></span> ' + statusLabel + '</span>';
+      html += '</div>';
+
+      // Column 2: Registry PP 719
       html += renderRegimeCheckCell('Реестр ПП №719', item.registry_status, item.registry_actual, item.registry_cert_end_date, item.registry_raw_url);
 
-      // Localization PP 1875
+      // Column 3: Localization PP 1875
       var locDetail = '';
       if (item.localization_actual_score != null && item.localization_required_score != null) {
         locDetail = item.localization_actual_score + ' из ' + item.localization_required_score + ' (мин.)';
       }
       html += renderRegimeCheckCellSimple('Баллы локализации', item.localization_status, locDetail);
 
-      // GISP — expandable comparison table
+      // Column 4: GISP — expandable comparison table
       html += renderGispCheckCell(item, item.id || i);
 
       html += '</div></div>';
