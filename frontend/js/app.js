@@ -2907,24 +2907,54 @@
         el.innerHTML = '<div class="empty-state">Нет закупок с LLM-вызовами</div>';
         return;
       }
-      var html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
-      html += '<thead><tr style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);border-bottom:1px solid var(--border)">';
-      html += '<th style="text-align:left;padding:6px 8px;font-weight:500">Закупка</th>';
-      html += '<th style="text-align:right;padding:6px 8px;font-weight:500;white-space:nowrap">Вызовы</th>';
-      html += '<th style="text-align:right;padding:6px 8px;font-weight:500;white-space:nowrap">Токены</th>';
-      html += '<th style="text-align:center;padding:6px 8px;font-weight:500">Trace</th>';
-      html += '</tr></thead><tbody>';
-      for (var i = 0; i < list.length; i++) {
-        var p = list[i];
-        var archived = p.is_archived ? '<span style="font-size:10px;color:var(--text-secondary);background:var(--bg);padding:1px 5px;border-radius:3px;margin-left:4px">архив</span>' : '';
-        html += '<tr style="cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--accent-light)\'" onmouseout="this.style.background=\'\'" onclick="window._loadTraceForPurchase(' + p.id + ')">';
-        html += '<td style="padding:6px 8px;font-weight:500">' + escapeHtml(p.name) + archived + '</td>';
-        html += '<td style="padding:6px 8px;text-align:right;color:var(--text-secondary)">' + p.call_count + '</td>';
-        html += '<td style="padding:6px 8px;text-align:right;color:var(--text-secondary)">' + _fmtTokens(p.total_tokens) + '</td>';
-        html += '<td style="padding:6px 8px;text-align:center">' + (p.has_traces ? '<span style="color:var(--success)">&#9679;</span>' : '<span style="color:var(--border)">&#9679;</span>') + '</td>';
-        html += '</tr>';
+      var active = list.filter(function (p) { return !p.is_archived; });
+      var archived = list.filter(function (p) { return p.is_archived; });
+
+      function _traceTableRows(items) {
+        var h = '';
+        for (var i = 0; i < items.length; i++) {
+          var p = items[i];
+          var dateStr = p.created_at ? p.created_at.substring(0, 10).split('-').reverse().join('.') : '';
+          h += '<tr style="cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--accent-light)\'" onmouseout="this.style.background=\'\'" onclick="window._loadTraceForPurchase(' + p.id + ')">';
+          h += '<td style="padding:6px 8px;font-weight:500">' + escapeHtml(p.name) + '</td>';
+          h += '<td style="padding:6px 8px;text-align:center;color:var(--text-secondary);font-size:12px">' + dateStr + '</td>';
+          h += '<td style="padding:6px 8px;text-align:right;color:var(--text-secondary)">' + p.call_count + '</td>';
+          h += '<td style="padding:6px 8px;text-align:right;color:var(--text-secondary)">' + _fmtTokens(p.total_tokens) + '</td>';
+          h += '<td style="padding:6px 8px;text-align:center">' + (p.has_traces ? '<span style="color:var(--success)">&#9679;</span>' : '<span style="color:var(--border)">&#9679;</span>') + '</td>';
+          h += '</tr>';
+        }
+        return h;
       }
-      html += '</tbody></table>';
+
+      var thStyle = 'font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);border-bottom:1px solid var(--border)';
+      var html = '';
+
+      // Active purchases
+      if (active.length) {
+        html += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+        html += '<thead><tr style="' + thStyle + '">';
+        html += '<th style="text-align:left;padding:6px 8px;font-weight:500">Закупка</th>';
+        html += '<th style="text-align:center;padding:6px 8px;font-weight:500">Дата</th>';
+        html += '<th style="text-align:right;padding:6px 8px;font-weight:500;white-space:nowrap">Вызовы</th>';
+        html += '<th style="text-align:right;padding:6px 8px;font-weight:500;white-space:nowrap">Токены</th>';
+        html += '<th style="text-align:center;padding:6px 8px;font-weight:500">Trace</th>';
+        html += '</tr></thead><tbody>' + _traceTableRows(active) + '</tbody></table>';
+      } else {
+        html += '<div style="color:var(--text-secondary);font-size:13px;padding:8px 0">Нет активных закупок с LLM-вызовами</div>';
+      }
+
+      // Archived purchases (collapsible)
+      if (archived.length) {
+        html += '<div style="margin-top:12px">';
+        html += '<div style="cursor:pointer;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);font-weight:500;padding:6px 0" onclick="var t=this.nextElementSibling;var a=t.style.display===\'none\';t.style.display=a?\'\':\' none\';this.querySelector(\'span\').textContent=a?\'&#9660;\':\'&#9654;\'">';
+        html += '<span>&#9654;</span> Архив (' + archived.length + ')';
+        html += '</div>';
+        html += '<div style="display:none">';
+        html += '<table style="width:100%;border-collapse:collapse;font-size:13px;opacity:0.7">';
+        html += '<tbody>' + _traceTableRows(archived) + '</tbody></table>';
+        html += '</div></div>';
+      }
+
       el.innerHTML = html;
     }).catch(function (err) {
       showError('Ошибка загрузки: ' + err.message);
