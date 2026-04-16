@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import select, func, col
-from sqlalchemy import delete as sa_delete
+from sqlalchemy import delete as sa_delete, update as sa_update
 
 logger = logging.getLogger(__name__)
 
@@ -974,20 +974,25 @@ def delete_bid(
     if not bid or bid.purchase_id != purchase_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bid not found")
 
-    lots = session.exec(select(BidLot).where(BidLot.bid_id == bid_id)).all()
-    for lot in lots:
-        params = session.exec(select(BidLotParameter).where(BidLotParameter.bid_lot_id == lot.id)).all()
-        for p in params:
-            session.delete(p)
-        session.delete(lot)
-    # LLMTask.bid_id is a nullable FK — detach instead of deleting so trace
-    # history survives the bid removal.
-    tasks = session.exec(select(LLMTask).where(LLMTask.bid_id == bid_id)).all()
-    for t in tasks:
-        t.bid_id = None
-        session.add(t)
-    session.delete(bid)
-    session.commit()
+    try:
+        lot_rows = session.exec(select(BidLot).where(BidLot.bid_id == bid_id)).all()
+        lot_ids = [l.id for l in lot_rows if l.id is not None]
+        if lot_ids:
+            session.exec(
+                sa_delete(BidLotParameter).where(col(BidLotParameter.bid_lot_id).in_(lot_ids))
+            )
+            session.exec(sa_delete(BidLot).where(col(BidLot.id).in_(lot_ids)))
+        # LLMTask.bid_id is a nullable FK — detach instead of deleting so trace
+        # history survives the bid removal.
+        session.exec(
+            sa_update(LLMTask).where(LLMTask.bid_id == bid_id).values(bid_id=None)
+        )
+        session.delete(bid)
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        logger.exception("delete_bid failed for bid %s (purchase %s)", bid_id, purchase_id)
+        raise HTTPException(status_code=500, detail=f"delete_bid: {type(exc).__name__}: {exc}")
 
 
 @app.delete("/purchases/{purchase_id}/tz", status_code=status.HTTP_204_NO_CONTENT)
