@@ -986,6 +986,43 @@ def delete_bid(
     session.commit()
 
 
+@app.delete("/purchases/{purchase_id}/tz", status_code=status.HTTP_204_NO_CONTENT)
+def delete_tz(
+    purchase_id: int,
+    session=Depends(get_session),
+    current_user: User = Depends(auth.get_current_user),
+):
+    """Remove the ТЗ from a purchase.
+
+    Also drops every Lot + LotParameter we extracted from it and the `tz`
+    PurchaseFile chip — so the user can re-upload a corrected ТЗ and run lot
+    extraction from scratch instead of having to create a new purchase.
+    """
+    purchase = session.get(Purchase, purchase_id)
+    if not purchase or purchase.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase not found")
+
+    lots = session.exec(select(Lot).where(Lot.purchase_id == purchase_id)).all()
+    for lot in lots:
+        params = session.exec(select(LotParameter).where(LotParameter.lot_id == lot.id)).all()
+        for p in params:
+            session.delete(p)
+        session.delete(lot)
+
+    tz_files = session.exec(
+        select(PurchaseFile).where(
+            PurchaseFile.purchase_id == purchase_id, PurchaseFile.file_type == "tz"
+        )
+    ).all()
+    for f in tz_files:
+        session.delete(f)
+
+    purchase.terms_text = None
+    purchase.updated_at = datetime.utcnow()
+    session.add(purchase)
+    session.commit()
+
+
 @app.post("/purchases/{purchase_id}/bids/{bid_id}/comparison", response_model=LotComparisonResponse)
 def start_bid_lot_comparison(
     purchase_id: int,

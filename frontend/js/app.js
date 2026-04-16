@@ -363,6 +363,7 @@
       label.style.fontWeight = '600';
     }
     if (hint) hint.style.display = 'none';
+    _addTzDeleteButton(zone);
   }
 
   function resetTzUploadZone() {
@@ -376,6 +377,44 @@
       label.style.fontWeight = '';
     }
     if (hint) hint.style.display = '';
+    _removeTzDeleteButton(zone);
+  }
+
+  function _addTzDeleteButton(zone) {
+    if (!zone || zone.querySelector('.tz-delete-btn')) return;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tz-delete-btn';
+    btn.title = 'Удалить ТЗ';
+    btn.innerHTML = '&times;';
+    btn.style.cssText = 'position:absolute;top:6px;right:6px;background:none;border:none;cursor:pointer;padding:2px 8px;color:var(--text-muted);font-size:18px;line-height:1;border-radius:4px;transition:all .15s';
+    btn.addEventListener('mouseover', function () { this.style.background = 'var(--danger-bg)'; this.style.color = 'var(--danger)'; });
+    btn.addEventListener('mouseout', function () { this.style.background = 'transparent'; this.style.color = 'var(--text-muted)'; });
+    btn.addEventListener('click', function (e) { e.stopPropagation(); _handleTzDelete(); });
+    if (getComputedStyle(zone).position === 'static') zone.style.position = 'relative';
+    zone.appendChild(btn);
+  }
+
+  function _removeTzDeleteButton(zone) {
+    if (!zone) return;
+    var btn = zone.querySelector('.tz-delete-btn');
+    if (btn) btn.remove();
+  }
+
+  async function _handleTzDelete() {
+    if (!currentPurchase) return;
+    if (!confirm('Удалить ТЗ и все распознанные лоты? Это действие нельзя отменить.')) return;
+    try {
+      showMessage('Удаление ТЗ...');
+      await API.apiFetch('/purchases/' + currentPurchase.id + '/tz', { method: 'DELETE' });
+      currentPurchase.terms_text = null;
+      resetTzUploadZone();
+      updateComparisonZones();
+      loadLots();
+      showMessage('ТЗ удалён');
+    } catch (e) {
+      showError('Ошибка удаления ТЗ: ' + e.message);
+    }
   }
 
   // ── TZ Upload (on search tab) ─────────────────────────────────────
@@ -1162,17 +1201,22 @@
 
   function updateComparisonZones() {
     // ТЗ zone
+    var tzZone = $('comparison-tz-zone');
     var tzHint = $('comparison-tz-hint');
-    if (tzHint) {
-      if (currentPurchase && currentPurchase.terms_text) {
+    if (currentPurchase && currentPurchase.terms_text) {
+      if (tzHint) {
         tzHint.textContent = 'ТЗ загружено';
         tzHint.style.color = 'var(--success)';
         tzHint.style.fontWeight = '500';
-      } else {
+      }
+      if (tzZone) _addTzDeleteButton(tzZone);
+    } else {
+      if (tzHint) {
         tzHint.textContent = 'ТЗ не загружено';
         tzHint.style.color = '';
         tzHint.style.fontWeight = '';
       }
+      if (tzZone) _removeTzDeleteButton(tzZone);
     }
     // КП zone
     var kpHint = $('comparison-kp-hint');
@@ -1197,16 +1241,47 @@
     for (var i = 0; i < currentBids.length; i++) {
       var bid = currentBids[i];
       var lotCount = bid.lots ? bid.lots.length : 0;
-      html += '<div class="comp-supplier-tab" data-bid-id="' + bid.id + '">' +
+      var bidName = escapeHtml(bid.supplier_name || 'Поставщик');
+      html += '<div class="comp-supplier-tab" data-bid-id="' + bid.id + '" style="position:relative;padding-right:32px">' +
         '<span class="comp-supplier-indicator comp-supplier-indicator--pending"></span>' +
         '<div>' +
-        '<div class="comp-supplier-tab-name">' + escapeHtml(bid.supplier_name || 'Поставщик') + '</div>' +
+        '<div class="comp-supplier-tab-name">' + bidName + '</div>' +
         '<div class="comp-supplier-tab-meta">' + lotCount + ' позиций</div>' +
-        '</div></div>';
+        '</div>' +
+        '<button class="comp-bid-delete" data-bid-id="' + bid.id + '" data-bid-name="' + bidName + '" title="Удалить КП" style="position:absolute;top:6px;right:6px;background:none;border:none;cursor:pointer;padding:2px 6px;color:var(--text-muted);line-height:1;font-size:16px;border-radius:3px;transition:all .15s" onmouseover="this.style.background=\'var(--danger-bg)\';this.style.color=\'var(--danger)\'" onmouseout="this.style.background=\'transparent\';this.style.color=\'var(--text-muted)\'">&times;</button>' +
+        '</div>';
     }
     container.innerHTML = html;
     $('btn-compare').disabled = false;
     updateComparisonZones();
+    _bindCompBidDelete();
+  }
+
+  function _bindCompBidDelete() {
+    var buttons = document.querySelectorAll('#comparison-bid-selector .comp-bid-delete');
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var bidId = this.getAttribute('data-bid-id');
+        var bidName = this.getAttribute('data-bid-name');
+        _handleCompBidDelete(bidId, bidName);
+      });
+    });
+  }
+
+  async function _handleCompBidDelete(bidId, bidName) {
+    if (!currentPurchase || !bidId) return;
+    if (!confirm('Удалить КП "' + bidName + '"? Это действие нельзя отменить.')) return;
+    try {
+      await API.apiFetch('/purchases/' + currentPurchase.id + '/bids/' + bidId, { method: 'DELETE' });
+      if (selectedBidId == bidId) {
+        selectedBidId = null;
+        $('comparison-results').innerHTML = '';
+      }
+      await loadBids();
+    } catch (e) {
+      showError('Ошибка удаления: ' + e.message);
+    }
   }
 
   function populateBidSupplierDropdown() {
