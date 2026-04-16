@@ -678,10 +678,9 @@ body {
   font-size: var(--fs-body);
   color: var(--text-secondary);
 }
-.dashboard-metric b {
+.dashboard-metrics b {
   color: var(--text);
   font-weight: 700;
-  margin-right: 3px;
 }
 .dashboard-files {
   display: flex;

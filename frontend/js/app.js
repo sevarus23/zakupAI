@@ -2785,9 +2785,9 @@
 
       // Metrics
       var metricsHtml =
-        '<span><b>' + p.lots_count + '</b>лотов</span>' +
-        '<span><b>' + p.suppliers_count + '</b>поставщ.</span>' +
-        '<span><b>' + p.bids_count + '</b>КП</span>';
+        '<span>Лотов: <b>' + p.lots_count + '</b></span>' +
+        '<span>Поставщ.: <b>' + p.suppliers_count + '</b></span>' +
+        '<span>КП: <b>' + p.bids_count + '</b></span>';
 
       // Files — dedup by (normalized type + filename) so one file uploaded
       // via both tabs (Comparison writes 'kp', Нацрежим wrote 'regime_kp')
