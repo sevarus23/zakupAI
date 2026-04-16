@@ -242,6 +242,85 @@
   display: none;
 }
 
+/* ---- Consent Checkbox ---- */
+
+.auth-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.auth-consent:hover {
+  border-color: var(--outline-variant);
+  background: var(--surface-low);
+}
+
+.auth-consent-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.auth-consent-box {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--outline-variant);
+  border-radius: 4px;
+  background: var(--card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  margin-top: 1px;
+}
+
+.auth-consent-box svg {
+  width: 12px;
+  height: 12px;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.auth-consent-input:checked ~ .auth-consent-box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.auth-consent-input:checked ~ .auth-consent-box svg {
+  opacity: 1;
+}
+
+.auth-consent-input:focus-visible ~ .auth-consent-box {
+  box-shadow: 0 0 0 3px rgba(0, 106, 96, 0.18);
+}
+
+.auth-consent-text {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.auth-consent-text a {
+  color: var(--accent);
+  font-weight: 500;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.auth-consent-text a:hover {
+  border-bottom-color: var(--accent);
+}
+
 /* ---- Submit Button ---- */
 
 .auth-submit {

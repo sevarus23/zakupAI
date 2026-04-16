@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Политика обработки персональных данных — zakupAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .doc-page {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+
+    .doc-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 13px;
+      margin-bottom: 32px;
+      transition: color 0.15s;
+    }
+
+    .doc-back:hover { color: var(--accent); }
+
+    .doc-header {
+      margin-bottom: 40px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .doc-eyebrow {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    .doc-title {
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      color: var(--text);
+      margin-bottom: 12px;
+    }
+
+    .doc-meta {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .doc-meta span + span::before {
+      content: '·';
+      margin: 0 8px;
+      color: var(--outline-variant);
+    }
+
+    .doc-toc {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 40px;
+    }
+
+    .doc-toc-title {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .doc-toc ol {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      counter-reset: toc;
+      column-count: 2;
+      column-gap: 32px;
+    }
+
+    .doc-toc li {
+      counter-increment: toc;
+      padding: 4px 0;
+      font-size: 13.5px;
+      break-inside: avoid;
+    }
+
+    .doc-toc li::before {
+      content: counter(toc) '.';
+      color: var(--text-muted);
+      margin-right: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .doc-toc a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+
+    .doc-toc a:hover { color: var(--accent); }
+
+    .doc-section {
+      margin-bottom: 36px;
+      scroll-margin-top: 24px;
+    }
+
+    .doc-section h2 {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+
+    .doc-section h2 .num {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      min-width: 24px;
+    }
+
+    .doc-section h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      margin: 20px 0 8px;
+    }
+
+    .doc-section p,
+    .doc-section ul,
+    .doc-section ol {
+      font-size: 14.5px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+    }
+
+    .doc-section ul,
+    .doc-section ol {
+      padding-left: 22px;
+    }
+
+    .doc-section li { margin-bottom: 4px; }
+
+    .doc-section a {
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.15s;
+    }
+
+    .doc-section a:hover { border-bottom-color: var(--accent); }
+
+    .doc-section strong { color: var(--text); font-weight: 600; }
+
+    .doc-callout {
+      background: var(--surface-low);
+      border-left: 3px solid var(--accent);
+      border-radius: 6px;
+      padding: 14px 18px;
+      margin: 16px 0;
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    .doc-callout strong { color: var(--text); }
+
+    .doc-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin: 14px 0 18px;
+    }
+
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+
+    .doc-table th,
+    .doc-table td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    .doc-table th {
+      background: var(--surface-low);
+      font-weight: 600;
+      color: var(--text);
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .doc-table tr:last-child td { border-bottom: none; }
+
+    .doc-footer {
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .doc-footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    @media (max-width: 600px) {
+      .doc-page { padding: 24px 16px 56px; }
+      .doc-title { font-size: 26px; }
+      .doc-toc ol { column-count: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-page">
+    <a href="register.html" class="doc-back">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+      Назад
+    </a>
+
+    <header class="doc-header">
+      <div class="doc-eyebrow">Юридический документ</div>
+      <h1 class="doc-title">Политика обработки персональных данных</h1>
+      <div class="doc-meta">
+        <span>Сервис app.zakupai.tech</span>
+        <span>Редакция от 16 апреля 2026 г.</span>
+      </div>
+    </header>
+
+    <nav class="doc-toc" aria-label="Содержание">
+      <div class="doc-toc-title">Содержание</div>
+      <ol>
+        <li><a href="#operator">Оператор</a></li>
+        <li><a href="#terms">Термины</a></li>
+        <li><a href="#data">Состав персональных данных</a></li>
+        <li><a href="#purposes">Цели обработки</a></li>
+        <li><a href="#legal">Правовые основания</a></li>
+        <li><a href="#methods">Способы обработки</a></li>
+        <li><a href="#third-parties">Передача третьим лицам</a></li>
+        <li><a href="#localization">Локализация и трансграничная передача</a></li>
+        <li><a href="#retention">Сроки хранения</a></li>
+        <li><a href="#security">Меры защиты</a></li>
+        <li><a href="#rights">Права субъекта</a></li>
+        <li><a href="#cookies">Cookie и аналитика</a></li>
+        <li><a href="#changes">Изменения политики</a></li>
+        <li><a href="#consent">Текст согласия</a></li>
+        <li><a href="#contacts">Контакты</a></li>
+      </ol>
+    </nav>
+
+    <section id="operator" class="doc-section">
+      <h2><span class="num">1.</span> Оператор персональных данных</h2>
+      <p>
+        Оператором персональных данных является
+        <strong>ООО «ТенАй»</strong> (далее — «Оператор», «мы»).
+      </p>
+      <ul>
+        <li><strong>ИНН:</strong> [укажите ИНН]</li>
+        <li><strong>ОГРН:</strong> [укажите ОГРН]</li>
+        <li><strong>Юридический адрес:</strong> [укажите адрес]</li>
+        <li><strong>Email для запросов по ПДн:</strong> <a href="mailto:info@zakupai.tech">info@zakupai.tech</a></li>
+      </ul>
+      <p>
+        Настоящая Политика разработана в соответствии с Федеральным законом от 27.07.2006
+        № 152-ФЗ «О персональных данных» и определяет порядок обработки персональных
+        данных пользователей сервиса <strong>app.zakupai.tech</strong> (далее — «Сервис»).
+      </p>
+    </section>
+
+    <section id="terms" class="doc-section">
+      <h2><span class="num">2.</span> Основные термины</h2>
+      <ul>
+        <li><strong>Персональные данные (ПДн)</strong> — любая информация, относящаяся к прямо или косвенно определённому или определяемому физическому лицу.</li>
+        <li><strong>Пользователь</strong> — физическое лицо, прошедшее регистрацию в Сервисе.</li>
+        <li><strong>Обработка ПДн</strong> — любые действия с персональными данными: сбор, запись, систематизация, хранение, использование, передача, удаление и др.</li>
+        <li><strong>Согласие</strong> — добровольное, конкретное, информированное и сознательное волеизъявление Пользователя на обработку его ПДн, оформляемое при регистрации в Сервисе.</li>
+      </ul>
+    </section>
+
+    <section id="data" class="doc-section">
+      <h2><span class="num">3.</span> Какие данные мы обрабатываем</h2>
+      <p>В рамках работы Сервиса Оператор обрабатывает следующие категории данных:</p>
+      <div class="doc-table-wrap">
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th>Категория</th>
+              <th>Состав</th>
+              <th>Источник</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Регистрационные данные</td>
+              <td>Email, пароль (в виде хеша), ФИО, наименование организации</td>
+              <td>Заполняются Пользователем при регистрации</td>
+            </tr>
+            <tr>
+              <td>Данные использования Сервиса</td>
+              <td>Загруженные файлы (ТЗ, КП), история запросов, результаты обработки, логи действий</td>
+              <td>Создаются Пользователем в процессе работы</td>
+            </tr>
+            <tr>
+              <td>Технические данные</td>
+              <td>IP-адрес, тип устройства и браузера, дата и время визитов, cookie-идентификаторы</td>
+              <td>Собираются автоматически</td>
+            </tr>
+            <tr>
+              <td>Аналитические данные</td>
+              <td>Поведение на страницах, переходы, источники трафика</td>
+              <td>Яндекс.Метрика (см. раздел 12)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="doc-callout">
+        <strong>Мы не собираем</strong> специальные категории ПДн (расовая принадлежность, политические взгляды, состояние здоровья и т. п.) и биометрические данные.
+      </div>
+    </section>
+
+    <section id="purposes" class="doc-section">
+      <h2><span class="num">4.</span> Цели обработки</h2>
+      <p>Оператор обрабатывает ПДн исключительно в следующих целях:</p>
+      <ol>
+        <li>Регистрация и аутентификация Пользователя в Сервисе.</li>
+        <li>Предоставление функциональности Сервиса: обработка тендерных документов, поиск поставщиков, генерация коммерческих предложений и иные сервисные функции.</li>
+        <li>Связь с Пользователем по вопросам работы Сервиса, направление сервисных уведомлений.</li>
+        <li>Улучшение качества Сервиса, диагностика ошибок, аналитика использования.</li>
+        <li>Исполнение обязательств по договору (соглашению об использовании Сервиса).</li>
+        <li>Выполнение требований законодательства Российской Федерации.</li>
+      </ol>
+    </section>
+
+    <section id="legal" class="doc-section">
+      <h2><span class="num">5.</span> Правовые основания обработки</h2>
+      <ul>
+        <li>Согласие субъекта ПДн на обработку его персональных данных (п. 1 ч. 1 ст. 6 152-ФЗ), оформляемое при регистрации.</li>
+        <li>Необходимость исполнения договора, стороной которого является субъект ПДн (п. 5 ч. 1 ст. 6 152-ФЗ).</li>
+        <li>Иные основания, предусмотренные действующим законодательством.</li>
+      </ul>
+    </section>
+
+    <section id="methods" class="doc-section">
+      <h2><span class="num">6.</span> Способы обработки</h2>
+      <p>
+        Обработка ПДн осуществляется как <strong>с использованием средств автоматизации</strong>
+        (хранение в базе данных, выполнение запросов, передача по защищённым каналам), так
+        и <strong>без их использования</strong> (при необходимости — в работе со служебными документами).
+      </p>
+      <p>Оператор не принимает решений, порождающих юридические последствия в отношении Пользователя, исключительно на основании автоматизированной обработки.</p>
+    </section>
+
+    <section id="third-parties" class="doc-section">
+      <h2><span class="num">7.</span> Передача третьим лицам</h2>
+      <p>
+        Оператор не передаёт ПДн Пользователей третьим лицам, за исключением случаев,
+        когда такая передача необходима для работы Сервиса. Текущий перечень обработчиков:
+      </p>
+      <div class="doc-table-wrap">
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th>Обработчик</th>
+              <th>Передаваемые данные</th>
+              <th>Цель</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ООО «ЯНДЕКС»<br>(Яндекс.Метрика)</td>
+              <td>Технические и аналитические данные, cookie</td>
+              <td>Сбор статистики посещений</td>
+            </tr>
+            <tr>
+              <td>Хостинг-провайдер<br>[укажите название]</td>
+              <td>Все данные, обрабатываемые Сервисом</td>
+              <td>Размещение серверной инфраструктуры</td>
+            </tr>
+            <tr>
+              <td>SMTP-провайдер<br>(reg.ru)</td>
+              <td>Email-адрес и содержание уведомлений</td>
+              <td>Отправка сервисных писем</td>
+            </tr>
+            <tr>
+              <td>Поставщики LLM-моделей</td>
+              <td>Содержание загруженных Пользователем документов (ТЗ, КП)</td>
+              <td>Обработка запросов к языковым моделям для функций Сервиса</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Передача осуществляется на основании договоров, обязывающих обработчиков соблюдать
+        конфиденциальность и требования к защите ПДн. Передача государственным органам
+        возможна только в случаях, прямо предусмотренных законом.
+      </p>
+    </section>
+
+    <section id="localization" class="doc-section">
+      <h2><span class="num">8.</span> Локализация и трансграничная передача</h2>
+      <p>
+        В соответствии с ч. 5 ст. 18 152-ФЗ запись, систематизация, накопление, хранение,
+        уточнение и извлечение персональных данных граждан Российской Федерации
+        осуществляются с использованием баз данных, расположенных на территории
+        Российской Федерации.
+      </p>
+      <div class="doc-callout">
+        <strong>Трансграничная передача:</strong> при использовании внешних поставщиков LLM-моделей содержимое запросов может обрабатываться на серверах, расположенных за пределами Российской Федерации. Эта передача осуществляется только с согласия Пользователя и в обезличенном или ограниченном объёме, необходимом для оказания услуги.
+      </div>
+    </section>
+
+    <section id="retention" class="doc-section">
+      <h2><span class="num">9.</span> Сроки хранения</h2>
+      <ul>
+        <li><strong>Регистрационные данные</strong> — в течение всего срока действия учётной записи и 6 месяцев после её удаления.</li>
+        <li><strong>Загруженные файлы и история запросов</strong> — в течение всего срока действия учётной записи; могут быть удалены Пользователем в любой момент.</li>
+        <li><strong>Логи и технические данные</strong> — не более 12 месяцев.</li>
+        <li><strong>Данные, обработка которых требуется законодательством</strong> — в течение установленных законом сроков.</li>
+      </ul>
+      <p>По истечении сроков хранения данные подлежат уничтожению или обезличиванию.</p>
+    </section>
+
+    <section id="security" class="doc-section">
+      <h2><span class="num">10.</span> Меры защиты</h2>
+      <p>Оператор принимает необходимые правовые, организационные и технические меры для защиты ПДн от неправомерного доступа, изменения, копирования, распространения и уничтожения, в частности:</p>
+      <ul>
+        <li>передача данных по защищённым каналам (HTTPS / TLS);</li>
+        <li>хранение паролей в виде криптографического хеша;</li>
+        <li>аутентификация на основе токенов с ограниченным сроком действия;</li>
+        <li>разграничение прав доступа к данным;</li>
+        <li>регулярное резервное копирование;</li>
+        <li>мониторинг событий безопасности и доступа.</li>
+      </ul>
+    </section>
+
+    <section id="rights" class="doc-section">
+      <h2><span class="num">11.</span> Права субъекта персональных данных</h2>
+      <p>В соответствии со ст. 14, 15, 21 152-ФЗ Пользователь имеет право:</p>
+      <ul>
+        <li>получать сведения об обработке его ПДн Оператором;</li>
+        <li>требовать уточнения, блокирования или удаления ПДн, если они являются неполными, устаревшими, неточными или незаконно полученными;</li>
+        <li>отозвать согласие на обработку ПДн в любой момент;</li>
+        <li>обжаловать действия Оператора в Роскомнадзоре или в судебном порядке;</li>
+        <li>требовать прекращения обработки данных в целях продвижения товаров и услуг.</li>
+      </ul>
+      <p>
+        Запросы направляются на <a href="mailto:info@zakupai.tech">info@zakupai.tech</a>.
+        Срок ответа — не более 10 рабочих дней с момента получения запроса.
+      </p>
+    </section>
+
+    <section id="cookies" class="doc-section">
+      <h2><span class="num">12.</span> Cookie-файлы и аналитика</h2>
+      <p>
+        Сервис использует cookie-файлы для технических целей (поддержание сессии
+        аутентификации, сохранение пользовательских настроек) и для сбора обезличенной
+        аналитики через <strong>Яндекс.Метрику</strong> (включая Вебвизор и карты кликов).
+      </p>
+      <p>
+        Подробнее о порядке обработки данных Яндекс.Метрикой — в
+        <a href="https://yandex.ru/legal/confidential/" target="_blank" rel="noopener">политике конфиденциальности Яндекса</a>.
+      </p>
+      <p>
+        Пользователь может управлять cookie через настройки браузера. Отключение cookie
+        может привести к невозможности использования отдельных функций Сервиса.
+      </p>
+    </section>
+
+    <section id="changes" class="doc-section">
+      <h2><span class="num">13.</span> Изменения политики</h2>
+      <p>
+        Оператор вправе вносить изменения в настоящую Политику. Актуальная редакция
+        всегда доступна по адресу
+        <a href="https://app.zakupai.tech/privacy.html">app.zakupai.tech/privacy.html</a>.
+        Существенные изменения сопровождаются уведомлением Пользователя по email.
+      </p>
+    </section>
+
+    <section id="consent" class="doc-section">
+      <h2><span class="num">14.</span> Текст согласия на обработку ПДн</h2>
+      <div class="doc-callout">
+        Регистрируясь в Сервисе app.zakupai.tech и проставляя соответствующую отметку,
+        я, как субъект персональных данных, в соответствии с требованиями ст. 9
+        Федерального закона от 27.07.2006 № 152-ФЗ «О персональных данных»
+        даю <strong>ООО «ТенАй»</strong> согласие на обработку моих персональных данных
+        (Email, пароль, ФИО, наименование организации, технические и аналитические данные)
+        в целях, указанных в разделе 4 настоящей Политики, способами, перечисленными
+        в разделе 6, на срок действия учётной записи и в течение 6 месяцев после её
+        удаления. Согласие может быть отозвано путём направления письменного запроса
+        на <a href="mailto:info@zakupai.tech">info@zakupai.tech</a>.
+      </div>
+    </section>
+
+    <section id="contacts" class="doc-section">
+      <h2><span class="num">15.</span> Контакты</h2>
+      <p>
+        По всем вопросам, связанным с обработкой персональных данных, обращайтесь:
+        <a href="mailto:info@zakupai.tech">info@zakupai.tech</a>.
+      </p>
+    </section>
+
+    <div class="doc-footer">
+      <span>&copy; 2026 ООО «ТенАй». Все права защищены.</span>
+      <a href="register.html">Вернуться к регистрации</a>
+    </div>
+  </div>
+</body>
+</html>

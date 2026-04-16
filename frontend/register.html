@@ -78,6 +78,19 @@
             </div>
           </div>
 
+          <label class="auth-consent">
+            <input id="consent" type="checkbox" class="auth-consent-input" required>
+            <span class="auth-consent-box" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3.5 8.5 6.5 11.5 12.5 4.5"/>
+              </svg>
+            </span>
+            <span class="auth-consent-text">
+              Я даю согласие на обработку моих персональных данных в соответствии с
+              <a href="privacy.html" target="_blank" rel="noopener">Политикой обработки персональных данных</a>.
+            </span>
+          </label>
+
           <button type="submit" class="auth-submit">Зарегистрироваться</button>
         </form>
       </div>
@@ -123,6 +136,7 @@
         var password = passwordInput.value;
         var fullName = document.getElementById('full_name').value.trim();
         var organization = document.getElementById('organization').value.trim();
+        var consentChecked = document.getElementById('consent').checked;
 
         if (!email || !password) {
           errorDiv.textContent = 'Заполните все обязательные поля';
@@ -132,6 +146,12 @@
 
         if (password.length < 6) {
           errorDiv.textContent = 'Пароль должен содержать не менее 6 символов';
+          errorDiv.classList.remove('hidden');
+          return;
+        }
+
+        if (!consentChecked) {
+          errorDiv.textContent = 'Для регистрации необходимо согласие на обработку персональных данных';
           errorDiv.classList.remove('hidden');
           return;
         }
