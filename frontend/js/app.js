@@ -1923,7 +1923,8 @@
         '<div class="label">Загрузить КП для проверки</div>' +
         '<div class="hint" id="regime-kp-hint">pdf, xlsx, doc, docx — можно несколько файлов</div>' +
         '<input type="file" id="inp-regime-kp-file" accept=".pdf,.xlsx,.doc,.docx" multiple style="display:none">' +
-        '</div>';
+        '</div>' +
+        '<div id="regime-upload-status"></div>';
       _bindRegimeUpload();
       return;
     }
@@ -1950,9 +1951,11 @@
           lotLabel = '0 поз.';
         }
       }
-      html += '<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--card);border:1px solid var(--border);border-radius:6px;font-size:12px">' +
+      html += '<span class="regime-bid-chip" style="display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;background:var(--card);border:1px solid var(--border);border-radius:6px;font-size:12px">' +
         statusIcon + ' <span style="font-weight:500">' + escapeHtml(bid.supplier_name || 'Поставщик') + '</span>' +
-        '<span style="color:var(--text-secondary)">' + lotLabel + '</span></span>';
+        '<span style="color:var(--text-secondary)">' + lotLabel + '</span>' +
+        '<button class="regime-bid-delete" data-bid-id="' + bid.id + '" data-bid-name="' + escapeHtml(bid.supplier_name || 'Поставщик') + '" title="Удалить КП" style="background:none;border:none;cursor:pointer;padding:2px 4px;margin-left:2px;color:var(--text-muted);line-height:1;font-size:14px;border-radius:3px" onmouseover="this.style.background=\'var(--danger-bg)\';this.style.color=\'var(--danger)\'" onmouseout="this.style.background=\'none\';this.style.color=\'var(--text-muted)\'">&times;</button>' +
+        '</span>';
     }
     // Compact upload button
     html += '<span id="regime-kp-upload-card" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px dashed var(--border);border-radius:6px;font-size:12px;cursor:pointer;color:var(--text-secondary);transition:all 0.15s" onmouseover="this.style.borderColor=\'var(--accent)\';this.style.color=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--text-secondary)\'">' +
@@ -1967,12 +1970,39 @@
     html += '<div id="regime-upload-status"></div>';
     container.innerHTML = html;
     _bindRegimeUpload();
+    _bindRegimeBidDelete();
 
     // Auto-poll bids while extraction is in progress
     if (hasExtracting) {
       _startRegimeBidsPolling();
     } else {
       _stopRegimeBidsPolling();
+    }
+  }
+
+  function _bindRegimeBidDelete() {
+    var buttons = document.querySelectorAll('#regime-bids-list .regime-bid-delete');
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var bidId = this.getAttribute('data-bid-id');
+        var bidName = this.getAttribute('data-bid-name');
+        _handleRegimeBidDelete(bidId, bidName);
+      });
+    });
+  }
+
+  async function _handleRegimeBidDelete(bidId, bidName) {
+    if (!currentPurchase || !bidId) return;
+    if (!confirm('Удалить КП "' + bidName + '"? Это действие нельзя отменить.')) return;
+    _setRegimeUploadStatus('Удаление ' + bidName + '...', 'info');
+    try {
+      await API.apiFetch('/purchases/' + currentPurchase.id + '/bids/' + bidId, { method: 'DELETE' });
+      await loadBids();
+      renderRegimeBids();
+      _setRegimeUploadStatus('Удалено: ' + bidName, 'clear');
+    } catch (e) {
+      _setRegimeUploadStatus('Ошибка удаления: ' + e.message, 'error');
     }
   }
 

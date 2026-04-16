@@ -955,6 +955,31 @@ def list_bids(
     ]
 
 
+@app.delete("/purchases/{purchase_id}/bids/{bid_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_bid(
+    purchase_id: int,
+    bid_id: int,
+    session=Depends(get_session),
+    current_user: User = Depends(auth.get_current_user),
+):
+    purchase = session.get(Purchase, purchase_id)
+    if not purchase or purchase.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase not found")
+
+    bid = session.get(Bid, bid_id)
+    if not bid or bid.purchase_id != purchase_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bid not found")
+
+    lots = session.exec(select(BidLot).where(BidLot.bid_id == bid_id)).all()
+    for lot in lots:
+        params = session.exec(select(BidLotParameter).where(BidLotParameter.bid_lot_id == lot.id)).all()
+        for p in params:
+            session.delete(p)
+        session.delete(lot)
+    session.delete(bid)
+    session.commit()
+
+
 @app.post("/purchases/{purchase_id}/bids/{bid_id}/comparison", response_model=LotComparisonResponse)
 def start_bid_lot_comparison(
     purchase_id: int,
