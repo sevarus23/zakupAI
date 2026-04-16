@@ -11,3 +11,9 @@ frontend/dist/
 frontend/build.txt
 npm-debug.log*
 *.DS_Store*
+
+# Design/PRD artefacts kept in repo root for local reference only
+/anthem-preview.html
+/anthem-v2-preview.html
+/frontend-preview.html
+/PRD_frontend_v3.md

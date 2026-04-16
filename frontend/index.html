@@ -18,63 +18,97 @@
   <!-- /Yandex.Metrika counter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260412e">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/main.css?v=20260416a">
 </head>
 <body>
 
-  <!-- ===== HEADER ===== -->
-  <header class="header">
-    <div class="header-left">
-      <div class="logo">zakup<span>AI</span></div>
-      <div class="procurement-selector" id="procurement-selector">
-        <span id="procurement-selector-text">Загрузка...</span>
-        <span class="arrow">&#9662;</span>
-        <div class="procurement-dropdown hidden" id="procurement-dropdown">
-          <!-- Populated dynamically -->
-        </div>
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-mark"><span class="material-symbols-outlined">biotech</span></div>
+      <div class="brand-text">
+        <h1>zakup<span>AI</span></h1>
+        <p>Умные закупки</p>
       </div>
     </div>
-    <div class="header-right">
-      <button class="btn-new-procurement" id="btn-new-purchase">+ Новая закупка</button>
-      <a href="admin.html" class="admin-link hidden" id="admin-link">Админ</a>
-      <span class="user-info" id="user-info"></span>
-      <button class="btn-logout" id="btn-logout">Выйти</button>
-    </div>
-  </header>
 
-  <div class="app-layout">
-
-    <!-- ===== SIDEBAR ===== -->
-    <nav class="sidebar">
+    <div class="sidebar-section">
       <div class="tab active" data-tab="dashboard">
-        &#128203; Мои закупки
+        <span class="material-symbols-outlined tab-icon">dashboard</span>
+        <span class="tab-label">Мои закупки</span>
       </div>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <div class="sidebar-section">
       <div class="sidebar-label">Этапы закупки</div>
       <div class="tab" data-tab="search">
-        &#128270; Поиск
+        <span class="material-symbols-outlined tab-icon">search</span>
+        <span class="tab-label">Поиск</span>
         <span class="badge hidden" id="badge-search"></span>
       </div>
       <div class="tab" data-tab="correspondence">
-        &#9993; Письма и КП
+        <span class="material-symbols-outlined tab-icon">mail</span>
+        <span class="tab-label">Письма и КП</span>
         <span class="badge-outline hidden" id="badge-correspondence"></span>
       </div>
       <div class="tab" data-tab="comparison">
-        &#9878; Сравнение
+        <span class="material-symbols-outlined tab-icon">compare_arrows</span>
+        <span class="tab-label">Сравнение</span>
       </div>
       <div class="tab" data-tab="regime">
-        &#127479;&#127482; Нацрежим
+        <span class="material-symbols-outlined tab-icon">verified_user</span>
+        <span class="tab-label">Нацрежим</span>
       </div>
-      <div class="sidebar-label" id="sidebar-debug-label" style="display:none">Отладка</div>
+    </div>
+
+    <div class="sidebar-divider" id="sidebar-debug-divider" style="display:none"></div>
+
+    <div class="sidebar-section" id="sidebar-debug-section" style="display:none">
+      <div class="sidebar-label" id="sidebar-debug-label">Отладка</div>
       <div class="tab" data-tab="llm-trace" id="tab-llm-trace-nav" style="display:none">
-        &#128269; LLM Trace
-        <span class="badge">admin</span>
+        <span class="material-symbols-outlined tab-icon">history_edu</span>
+        <span class="tab-label">LLM Trace</span>
+        <span class="badge-admin">адм</span>
       </div>
       <div class="tab" data-tab="llm-sandbox" id="tab-llm-sandbox-nav" style="display:none">
-        &#9881; Sandbox
-        <span class="badge">admin</span>
+        <span class="material-symbols-outlined tab-icon">science</span>
+        <span class="tab-label">Sandbox</span>
+        <span class="badge-admin">адм</span>
       </div>
-    </nav>
+    </div>
+  </aside>
+
+  <div class="app-wrap">
+
+    <!-- ===== HEADER ===== -->
+    <header class="header">
+      <div class="header-left">
+        <div class="procurement-selector" id="procurement-selector">
+          <span id="procurement-selector-text">Загрузка...</span>
+          <span class="material-symbols-outlined selector-arrow">expand_more</span>
+          <div class="procurement-dropdown hidden" id="procurement-dropdown">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="btn-new-procurement" id="btn-new-purchase">
+          <span class="material-symbols-outlined">add</span>
+          <span>Новая закупка</span>
+        </button>
+        <a href="admin.html" class="admin-link hidden" id="admin-link">
+          <span class="material-symbols-outlined">admin_panel_settings</span>
+          <span>Админ</span>
+        </a>
+        <span class="user-info" id="user-info"></span>
+        <div class="user-avatar" id="user-avatar" aria-hidden="true"></div>
+        <button class="btn-logout" id="btn-logout">Выйти</button>
+      </div>
+    </header>
 
     <!-- ===== MAIN ===== -->
     <div class="main">
@@ -400,7 +434,7 @@
       </div>
 
     </div>
-  </div><!-- /app-layout -->
+  </div><!-- /app-wrap -->
 
   <!-- ===== MODAL: New Purchase ===== -->
   <div class="modal-overlay" id="modal-new-purchase">
@@ -622,20 +656,30 @@
   </div>
 
   <!-- Scripts -->
-  <script src="js/config.js?v=20260412e"></script>
-  <script src="js/api.js?v=20260412e"></script>
-  <script src="js/auth.js?v=20260412e"></script>
-  <script src="js/app.js?v=20260412e"></script>
+  <script src="js/config.js?v=20260416a"></script>
+  <script src="js/api.js?v=20260416a"></script>
+  <script src="js/auth.js?v=20260416a"></script>
+  <script src="js/app.js?v=20260416a"></script>
   <script>
     Auth.requireAuth();
-    // Show admin link if user is admin
+    // Show admin sections + populate avatar initials
     var user = Auth.getUser();
     if (user && user.is_admin) {
       document.getElementById('admin-link').classList.remove('hidden');
+      document.getElementById('sidebar-debug-section').style.display = '';
+      document.getElementById('sidebar-debug-divider').style.display = '';
       document.getElementById('sidebar-debug-label').style.display = '';
       document.getElementById('tab-llm-trace-nav').style.display = '';
       document.getElementById('tab-llm-sandbox-nav').style.display = '';
     }
+    (function () {
+      var avatar = document.getElementById('user-avatar');
+      if (!avatar) return;
+      var src = user && (user.full_name || user.email) || '';
+      var initials = src.trim().split(/[\s@._-]+/).filter(Boolean).slice(0, 2)
+        .map(function (s) { return s.charAt(0).toUpperCase(); }).join('');
+      avatar.textContent = initials || '?';
+    })();
   </script>
 </body>
 </html>
