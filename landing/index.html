@@ -954,6 +954,81 @@
       margin-top: -4px;
     }
 
+    .lead-consent {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      cursor: pointer;
+      padding: 4px 2px;
+      user-select: none;
+    }
+
+    .lead-consent-input {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+      pointer-events: none;
+    }
+
+    .lead-consent-box {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      border: 1.5px solid rgba(255,255,255,0.35);
+      border-radius: 4px;
+      background: rgba(255,255,255,0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      margin-top: 1px;
+    }
+
+    .lead-consent-box svg {
+      width: 12px;
+      height: 12px;
+      color: #fff;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+
+    .lead-consent:hover .lead-consent-box {
+      border-color: rgba(255,255,255,0.6);
+    }
+
+    .lead-consent-input:checked ~ .lead-consent-box {
+      background: #3bb8a8;
+      border-color: #3bb8a8;
+    }
+
+    .lead-consent-input:checked ~ .lead-consent-box svg {
+      opacity: 1;
+    }
+
+    .lead-consent-input:focus-visible ~ .lead-consent-box {
+      box-shadow: 0 0 0 3px rgba(59,184,168,0.3);
+    }
+
+    .lead-consent-text {
+      font-size: 12.5px;
+      line-height: 1.45;
+      color: rgba(255,255,255,0.55);
+    }
+
+    .lead-consent-text a {
+      color: rgba(255,255,255,0.85);
+      text-decoration: underline;
+      text-decoration-color: rgba(255,255,255,0.3);
+      text-underline-offset: 2px;
+      transition: text-decoration-color 0.15s, color 0.15s;
+    }
+
+    .lead-consent-text a:hover {
+      color: #fefefe;
+      text-decoration-color: rgba(255,255,255,0.8);
+    }
+
     @media (max-width: 600px) {
       .lead-form-row {
         flex-direction: column;
@@ -1779,6 +1854,18 @@
           <input type="text" name="company" placeholder="Компания">
           <input type="tel" name="phone" placeholder="Телефон">
         </div>
+        <label class="lead-consent">
+          <input id="leadConsent" type="checkbox" class="lead-consent-input" required>
+          <span class="lead-consent-box" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3.5 8.5 6.5 11.5 12.5 4.5"/>
+            </svg>
+          </span>
+          <span class="lead-consent-text">
+            Я даю согласие на обработку моих персональных данных в соответствии с
+            <a href="https://app.zakupai.tech/privacy.html" target="_blank" rel="noopener">Политикой обработки персональных данных</a>.
+          </span>
+        </label>
         <button type="submit" class="cta-btn">Оставить заявку на пилот</button>
         <div class="lead-form-error" id="leadFormError" style="display:none"></div>
       </form>
@@ -1843,6 +1930,13 @@
       var successEl = document.getElementById('leadFormSuccess');
 
       errorEl.style.display = 'none';
+
+      if (!document.getElementById('leadConsent').checked) {
+        errorEl.textContent = 'Для отправки заявки необходимо согласие на обработку персональных данных';
+        errorEl.style.display = 'block';
+        return;
+      }
+
       btn.disabled = true;
       btn.textContent = 'Отправляем...';
 
