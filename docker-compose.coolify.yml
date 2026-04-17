@@ -62,6 +62,10 @@ services:
       PAGE_LOAD_TIMEOUT: ${PAGE_LOAD_TIMEOUT:-25}
       QUERY_DOCS_LIMIT: ${QUERY_DOCS_LIMIT:-3}
       ETL_POLL_INTERVAL: ${ETL_POLL_INTERVAL:-5}
+      LLM_TRACE_ENABLED: ${LLM_TRACE_ENABLED:-false}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
       WORKER_TASK_TYPES: supplier_search,supplier_search_perplexity
     expose:
       - "8002"
@@ -81,6 +85,10 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL}
+      LLM_TRACE_ENABLED: ${LLM_TRACE_ENABLED:-false}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
       ETL_POLL_INTERVAL: ${ETL_POLL_INTERVAL:-5}
       WORKER_TASK_TYPES: lot_comparison
     expose:

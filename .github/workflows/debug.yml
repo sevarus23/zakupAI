@@ -36,4 +36,4 @@ jobs:
             docker compose -f docker-compose.prod.yml logs backend --tail=80
             echo ""
             echo "=== ETL LOGS ==="
-            docker compose -f docker-compose.prod.yml logs etl --tail=30
+            docker compose -f docker-compose.prod.yml logs etl-suppliers etl-compare --tail=30

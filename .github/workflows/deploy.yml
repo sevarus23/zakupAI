@@ -99,7 +99,7 @@ jobs:
             # has historically returned a cached layer here. The build
             # itself takes ~2 seconds, so the cost is zero.
             docker compose -f docker-compose.prod.yml build --no-cache frontend
-            docker compose -f docker-compose.prod.yml build backend etl doc-to-md
+            docker compose -f docker-compose.prod.yml build backend etl-suppliers etl-compare doc-to-md
 
             # gisp-scraper has a heavy chromium layer (~30s on first build),
             # so we only rebuild it when something inside gisp-scraper/
@@ -121,7 +121,7 @@ jobs:
             # container instead of relying on image-digest comparison
             # (which has bitten us — see incident 2026-04-11).
             docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps frontend
-            docker compose -f docker-compose.prod.yml up -d backend etl doc-to-md db gisp-scraper
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans backend etl-suppliers etl-compare doc-to-md db gisp-scraper
             docker compose -f docker-compose.prod.yml restart nginx
 
             echo "=== local sanity (build.txt inside container) ==="
