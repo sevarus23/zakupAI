@@ -2782,7 +2782,7 @@
 
       // Module dots
       var progressHtml = '';
-      var keys = ['search_status', 'correspondence_status', 'comparison_status', 'regime_check_status'];
+      var keys = ['search_status', 'comparison_status', 'regime_check_status'];
       for (var m = 0; m < keys.length; m++) {
         var st = p[keys[m]] || 'not_started';
         var mutedCls = (st === 'not_started') ? ' muted' : '';
