@@ -418,3 +418,28 @@ async def achat_json(
             usage_ctx=usage_ctx,
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Error sanitization — strip provider/model info before showing to users
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+_PROVIDER_PATTERNS = _re.compile(
+    r"(https?://\S+|"
+    r"openrouter\.ai\S*|mistral\.ai\S*|openai\.com\S*|"
+    r"api\.anthropic\.com\S*|generativelanguage\.googleapis\S*|"
+    r"[a-z0-9_-]+/[a-z0-9._:-]+(?:-\d+)?)",  # model slugs like google/gemini-2.0-flash-001
+    _re.IGNORECASE,
+)
+
+_GENERIC_LLM_ERROR = "Ошибка при обработке запроса AI. Попробуйте повторить позже."
+
+
+def sanitize_llm_error(exc: Exception) -> str:
+    """Return a user-safe error string with provider/model details stripped."""
+    raw = str(exc)
+    if _PROVIDER_PATTERNS.search(raw):
+        return _GENERIC_LLM_ERROR
+    return raw[:300]

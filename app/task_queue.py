@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 
 from .database import engine
 from .services.llm_tasks import build_search_queries, extract_bid_lots, extract_lots
+from .services.llm import sanitize_llm_error
 from .models import BidLot, BidLotParameter, LLMTask, Lot, LotParameter, Purchase
 
 EMBEDDED_MAX_WORKERS = int(os.getenv("EMBEDDED_MAX_WORKERS", "4"))
@@ -182,7 +183,7 @@ class TaskQueue:
                 errored = session.get(LLMTask, task_id)
                 if errored:
                     errored.status = "failed"
-                    errored.output_text = json.dumps({"error": str(exc)}, ensure_ascii=False)
+                    errored.output_text = json.dumps({"error": sanitize_llm_error(exc)}, ensure_ascii=False)
                     session.add(errored)
                     session.commit()
         with Session(engine) as session:
@@ -217,7 +218,7 @@ class TaskQueue:
                 errored = session.get(LLMTask, task_id)
                 if errored:
                     errored.status = "failed"
-                    errored.output_text = json.dumps({"error": str(exc)}, ensure_ascii=False)
+                    errored.output_text = json.dumps({"error": sanitize_llm_error(exc)}, ensure_ascii=False)
                     session.add(errored)
                     session.commit()
         with Session(engine) as session:
@@ -288,7 +289,7 @@ class TaskQueue:
                     if errored and errored.status != "completed":
                         errored.status = "failed"
                         errored.output_text = json.dumps(
-                            {"error": str(exc), "traceback": tb[-1500:]},
+                            {"error": sanitize_llm_error(exc), "traceback": tb[-1500:]},
                             ensure_ascii=False,
                         )
                         session.add(errored)
@@ -385,7 +386,7 @@ class TaskQueue:
                     tb = traceback.format_exc()
                     print(f"[lots_extraction] extract_lots raised: {exc}\n{tb}")
                     task.output_text = json.dumps(
-                        {"error": f"LLM call failed: {exc}", "traceback": tb[-1500:]},
+                        {"error": sanitize_llm_error(exc), "traceback": tb[-1500:]},
                         ensure_ascii=False,
                     )
                     task.status = "failed"

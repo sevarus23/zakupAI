@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlmodel import Session as SMSession
 from ..models import RegimeCheck, RegimeCheckItem
 from .file_parser import parse_supplier_file
+from .llm import sanitize_llm_error
 from ..database import engine
 from .gisp_checker import check_gisp_characteristics
 from .localization_checker import check_localization, should_check_rep_level
@@ -467,7 +468,7 @@ def _record_pipeline_failure(
 ) -> None:
     total_time = round(time.monotonic() - pipeline_start, 1)
     logger.error(f"[check={check_id}] FAILED after {total_time}s: {exc}")
-    _set_error(check, db, str(exc))
+    _set_error(check, db, sanitize_llm_error(exc))
     prev = _progress.get(check_id, {})
     _progress[check_id] = {
         "total": prev.get("total", 0),
