@@ -237,6 +237,7 @@ class SupplierSearchResponse(BaseModel):
     processed_contacts: List["ProcessedContact"] = Field(default_factory=list)
     queue_length: int = 0
     estimated_complete_time: Optional[datetime] = None
+    started_at: Optional[datetime] = None
 
 
 class ProcessedContact(BaseModel):

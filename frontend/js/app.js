@@ -858,6 +858,16 @@
     statusEl.style.background = '';
 
     if (state.status === 'queued' || state.status === 'in_progress') {
+      // Prefer server-provided start time over client-side Date.now() so the
+      // timer survives tab switches, page refreshes, and re-opening a purchase
+      // from the dashboard. Backend emits naive UTC (no 'Z') — append it so
+      // Date.parse doesn't treat it as local time.
+      if (state.started_at) {
+        var s = state.started_at;
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(s)) s += 'Z';
+        var srvTs = Date.parse(s);
+        if (!isNaN(srvTs)) searchStartTime = srvTs;
+      }
       startSearchTimer();
       var note = state.note || '';
       var crawlDone = note.indexOf('Обход сайтов выполнен') >= 0;

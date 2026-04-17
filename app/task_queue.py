@@ -29,6 +29,7 @@ class SupplierSearchState:
     processed_contacts: List[Dict[str, Any]]
     queue_length: int = 0
     estimated_complete_time: Optional[datetime] = None
+    started_at: Optional[datetime] = None
 
 
 class TaskQueue:
@@ -561,6 +562,7 @@ def get_supplier_search_state(purchase_id: int) -> Optional[SupplierSearchState]
             processed_contacts=processed_contacts,
             queue_length=queue_length,
             estimated_complete_time=estimated_complete_time,
+            started_at=task.created_at,
         )
 
 

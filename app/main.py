@@ -1466,6 +1466,7 @@ def search_suppliers(
             processed_contacts=state.processed_contacts,
             queue_length=state.queue_length,
             estimated_complete_time=state.estimated_complete_time,
+            started_at=state.started_at,
         )
 
     return SupplierSearchResponse(
@@ -1478,6 +1479,7 @@ def search_suppliers(
         processed_contacts=state.processed_contacts,
         queue_length=state.queue_length,
         estimated_complete_time=state.estimated_complete_time,
+        started_at=state.started_at,
     )
 
 
@@ -1505,6 +1507,7 @@ def get_supplier_search_status(
         processed_contacts=state.processed_contacts,
         queue_length=state.queue_length,
         estimated_complete_time=state.estimated_complete_time,
+        started_at=state.started_at,
     )
 
 
