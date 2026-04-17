@@ -244,6 +244,13 @@ def _collect_combined_contacts(
         )
         _emit()
 
+    # Emit initial 0/N note so the UI progress bar shows immediately —
+    # the first Selenium page load can take minutes on slow sites, and
+    # without this the user sees "Найдено сайтов: N" frozen for a while.
+    if total_sites > 0:
+        first_url = websites_to_crawl[0].get("website") or ""
+        _crawl_progress(0, total_sites, first_url)
+
     try:
         crawled = collect_contacts_from_websites(
             technical_task_text=terms_text,
