@@ -347,7 +347,17 @@
       html += '<div class="quick-action-desc">' + a.desc + '</div>';
       html += '</div></div>';
     }
-    html += '</div></div>';
+    html += '</div>';
+    if (!hasPurchases) {
+      html += '<div class="quick-actions-sample">';
+      html += '<span class="quick-actions-sample-hint">Хотите сначала посмотреть, как это работает?</span>';
+      html += '<button type="button" class="btn btn-secondary" onclick="window._tryExampleTender()">';
+      html += '<span class="material-symbols-outlined" style="font-size:16px">play_circle</span>';
+      html += ' Попробовать на примере';
+      html += '</button>';
+      html += '</div>';
+    }
+    html += '</div>';
     el.innerHTML = html;
   }
 
@@ -357,6 +367,27 @@
     $('inp-terms-text').value = '';
     openModal('modal-new-purchase');
     setTimeout(function () { $('inp-purchase-name').focus(); }, 100);
+  };
+
+  // Demo-mode entry: loads a pre-computed snapshot and jumps to Comparison.
+  window._tryExampleTender = async function () {
+    if (!window.SAMPLE) { showError('Демо-модуль не загружен'); return; }
+    try {
+      showMessage('Загрузка демо-закупки...');
+      var fake = await window.SAMPLE.enter();
+      if (!fake) { showError('Демо-данные пусты'); return; }
+      // Inject into local state (don't hit real GET /purchases)
+      if (!purchases.some(function (p) { return String(p.id) === String(fake.id); })) {
+        purchases.unshift(fake);
+      }
+      renderPurchaseDropdown();
+      await selectPurchase(fake);
+      var cmpTab = document.querySelector('.sidebar .tab[data-tab="comparison"]');
+      if (cmpTab) cmpTab.click();
+      showMessage('Это демо-закупка. Загрузите свои файлы, чтобы провести реальный анализ.');
+    } catch (err) {
+      showError(err.message || 'Не удалось запустить демо');
+    }
   };
 
   function markTzUploadZone(filename) {

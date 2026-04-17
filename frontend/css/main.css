@@ -2748,9 +2748,40 @@ input[type="checkbox"] {
   font-size: 24px;
 }
 
+.btn-tour {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 12px;
+}
+
+.quick-actions-sample {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--border, rgba(0,0,0,.08));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.quick-actions-sample-hint {
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+}
+.quick-actions-sample .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 @media (max-width: 900px) {
   .quick-actions-grid {
     grid-template-columns: 1fr;
+  }
+  .quick-actions-sample {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
