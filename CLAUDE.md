@@ -15,11 +15,11 @@
 - **GISP retry:** `gisp-scraper` ретраит до 2 раз при крахе Chromium, `CatalogResponse.error/attempts` экспозированы. Backend `_scraper_catalog` → `gisp_unavailable` вместо фейкового «карточка пустая».
 - **LLM:** единый transport `app/services/llm.py`, per-task override через `LLM_MODEL_<TASK>`. Embeddings/lot matcher в `etl/worker.py` пока свой клиент.
 - **Scale-pilot-infra (a744ca4, на проде):** horizontal scale `etl-suppliers=3` / `etl-compare=2` через `docker compose up --scale`, gisp-scraper `2g RAM + 2g shm + GISP_MAX_CONCURRENT=5`, `GET /admin/queue` с `buckets` + `alerts[]`, LLM retry 3×backoff на 408/409/429/5xx + `APIConnectionError`. Безопасно благодаря `SELECT FOR UPDATE SKIP LOCKED` в `etl/worker.py:266`.
+- **VPS:** 6 CPU / 12 GB RAM (апгрейднули 2026-04-20 под `etl-suppliers × 3` + `gisp-scraper 2g`).
 - **CI (56d3502, на проде):** `deploy.yml` имеет триггер `pull_request` + job переименован `validate` → `test` (совпадает с branch-protection required check), `deploy` гейтится `if: event_name == 'push' && ref == 'refs/heads/main'`. PR'ы зеленеют сами, deploy только после merge.
 
 ## Open Issues
 
-- **VPS апгрейд до 6 CPU / 12 GB** — текущих 4 GB не хватит под уже задеплоенные `etl-suppliers × 3` + `gisp-scraper 2g`. Пока не апгрейднули — риск OOM-kill на пиковой нагрузке.
 - **Private-репо переход (отложен):** ждём, когда друг переведёт `ra-led/zakupAI` → private (sevarus23 — fork, после detach можно будет приватизировать). Перед этим: сменить VPS `origin` с anonymous HTTPS на SSH+deploy-key, иначе автодеплой упадёт 403.
 - **Cron-алерты на `/admin/queue`:** endpoint готов, но потребитель (Telegram/email notifier) не написан.
 - **UI-виджет очереди в `admin.html`:** endpoint готов, UI-карточка с `buckets` + `alerts` пока нет.
