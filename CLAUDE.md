@@ -4,7 +4,7 @@
 в конце каждой сессии (≤2 строки на пункт). Архитектура, фреймворки, команды
 деплоя — в `AGENTS.md` и памяти `~/.claude/projects/.../memory/zakupai_project.md`.
 
-## Current State (2026-04-20, HEAD 2ca7ab5 + PR #23 pending)
+## Current State (2026-04-20, HEAD 60df1e2)
 
 - **Деплой:** push в `main` → GitHub Actions валидирует (`py_compile` + `node --check` + HTML smoke) и деплоит по SSH на VPS с `--no-cache` + `--force-recreate` + verify через `/build.txt` и `/api/health`. Без этих трёх проверок — push and pray.
 - **Gated registration:** новые юзеры `is_active=False`, админ подтверждает в секции «Заявки на доступ» (`/admin/users/{id}/active`). Existing users (qwadro, test-debug2) не трогали.
@@ -14,11 +14,13 @@
 - **M4 UX fixes (2ca7ab5, на проде):** таймер regime показывает client-side elapsed при отсутствии `timings.total`; убран 3-секундный автоскрыватель `comparison-progress` — теперь остаётся до перерисовки.
 - **GISP retry:** `gisp-scraper` ретраит до 2 раз при крахе Chromium, `CatalogResponse.error/attempts` экспозированы. Backend `_scraper_catalog` → `gisp_unavailable` вместо фейкового «карточка пустая».
 - **LLM:** единый transport `app/services/llm.py`, per-task override через `LLM_MODEL_<TASK>`. Embeddings/lot matcher в `etl/worker.py` пока свой клиент.
-- **🚧 PR #23 (scale-pilot-infra) ждёт мержа:** horizontal scale `etl-suppliers=3` / `etl-compare=2`, gisp-scraper `2g RAM + 2g shm + GISP_MAX_CONCURRENT=5`, `GET /admin/queue` для мониторинга, LLM retry 3×backoff на 429/5xx. Готовит платформу к 10 пилотным юзерам. Безопасно благодаря `SELECT FOR UPDATE SKIP LOCKED` в `etl/worker.py:266`.
+- **Scale-pilot-infra (a744ca4, на проде):** horizontal scale `etl-suppliers=3` / `etl-compare=2` через `docker compose up --scale`, gisp-scraper `2g RAM + 2g shm + GISP_MAX_CONCURRENT=5`, `GET /admin/queue` с `buckets` + `alerts[]`, LLM retry 3×backoff на 408/409/429/5xx + `APIConnectionError`. Безопасно благодаря `SELECT FOR UPDATE SKIP LOCKED` в `etl/worker.py:266`.
+- **CI (56d3502, на проде):** `deploy.yml` имеет триггер `pull_request` + job переименован `validate` → `test` (совпадает с branch-protection required check), `deploy` гейтится `if: event_name == 'push' && ref == 'refs/heads/main'`. PR'ы зеленеют сами, deploy только после merge.
 
 ## Open Issues
 
-- **VPS апгрейд до 6 CPU / 12 GB** перед мержем PR #23 — текущих 4 GB не хватит под `etl-suppliers × 3` + `gisp-scraper 2g`.
+- **VPS апгрейд до 6 CPU / 12 GB** — текущих 4 GB не хватит под уже задеплоенные `etl-suppliers × 3` + `gisp-scraper 2g`. Пока не апгрейднули — риск OOM-kill на пиковой нагрузке.
+- **Private-репо переход (отложен):** ждём, когда друг переведёт `ra-led/zakupAI` → private (sevarus23 — fork, после detach можно будет приватизировать). Перед этим: сменить VPS `origin` с anonymous HTTPS на SSH+deploy-key, иначе автодеплой упадёт 403.
 - **Cron-алерты на `/admin/queue`:** endpoint готов, но потребитель (Telegram/email notifier) не написан.
 - **UI-виджет очереди в `admin.html`:** endpoint готов, UI-карточка с `buckets` + `alerts` пока нет.
 - **UI:** нет кнопки «Перепроверить строку» в M4 — при `gisp_unavailable` юзеру надо целиком пересоздавать regime check.
