@@ -125,7 +125,16 @@
           Auth.saveAuth(data.token, data.user);
           window.location.href = '/';
         } catch (err) {
-          errorDiv.textContent = err.message || 'Ошибка входа';
+          var detail = err.body && err.body.detail;
+          var isPending = detail && typeof detail === 'object' && detail.code === 'pending_approval';
+          if (isPending) {
+            errorDiv.innerHTML = '<strong>Аккаунт ожидает подтверждения</strong><br>'
+              + 'Мы проверяем новые регистрации вручную на этапе пилота. '
+              + 'После подтверждения мы отправим письмо на ваш email.';
+          } else {
+            var msg = (detail && typeof detail === 'string') ? detail : (err.message || 'Ошибка входа');
+            errorDiv.textContent = msg;
+          }
           errorDiv.classList.remove('hidden');
           submitBtn.disabled = false;
           submitBtn.textContent = 'Войти';

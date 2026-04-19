@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 from ..auth import get_admin_user
 from ..database import get_session
 from ..models import Lead, LLMTask, LLMTrace, LLMUsage, Lot, Purchase, User
+from ..notify import send_activation_notification
 from ..schemas import AdminDashboard, AdminPurchaseRead, AdminUserRead, LeadRead
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -31,6 +32,9 @@ def get_dashboard(
     new_users_today = session.exec(
         select(func.count(User.id)).where(col(User.created_at) >= today_start)
     ).one()
+    pending_users_count = session.exec(
+        select(func.count(User.id)).where(User.is_active == False)  # noqa: E712
+    ).one()
     total_purchases = session.exec(select(func.count(Purchase.id))).one()
     purchases_today = session.exec(
         select(func.count(Purchase.id)).where(col(Purchase.created_at) >= today_start)
@@ -41,12 +45,14 @@ def get_dashboard(
         new_users_today=new_users_today,
         total_purchases=total_purchases,
         purchases_today=purchases_today,
+        pending_users_count=pending_users_count,
     )
 
 
 @router.get("/users", response_model=List[AdminUserRead])
 def list_users(
     q: Optional[str] = Query(default=None),
+    is_active: Optional[bool] = Query(default=None),
     _admin: User = Depends(get_admin_user),
     session=Depends(get_session),
 ) -> List[AdminUserRead]:
@@ -56,6 +62,8 @@ def list_users(
         stmt = stmt.where(
             col(User.email).ilike(pattern) | col(User.full_name).ilike(pattern)
         )
+    if is_active is not None:
+        stmt = stmt.where(User.is_active == is_active)
     stmt = stmt.order_by(col(User.created_at).desc())
     users = session.exec(stmt).all()
 
@@ -73,6 +81,7 @@ def list_users(
                 is_admin=u.is_admin,
                 is_active=u.is_active,
                 created_at=u.created_at,
+                last_login_at=u.last_login_at,
                 purchase_count=purchase_count,
             )
         )
@@ -99,6 +108,43 @@ def toggle_admin(
     session.add(user)
     session.commit()
     return {"ok": True, "is_admin": user.is_admin}
+
+
+class ToggleActiveRequest(BaseModel):
+    is_active: bool
+    notify: bool = True
+
+
+@router.patch("/users/{user_id}/active")
+def toggle_active(
+    user_id: int,
+    payload: ToggleActiveRequest,
+    admin: User = Depends(get_admin_user),
+    session=Depends(get_session),
+):
+    if admin.id == user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot change own active status",
+        )
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    was_inactive = not user.is_active
+    user.is_active = payload.is_active
+    session.add(user)
+    session.commit()
+
+    if payload.is_active and was_inactive and payload.notify:
+        import threading
+        threading.Thread(
+            target=send_activation_notification,
+            args=(user.email, user.full_name),
+            daemon=True,
+        ).start()
+
+    return {"ok": True, "is_active": user.is_active}
 
 
 @router.get("/leads", response_model=List[LeadRead])

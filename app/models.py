@@ -13,6 +13,7 @@ class User(SQLModel, table=True):
     is_admin: bool = Field(default=False)
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_login_at: Optional[datetime] = None
 
 
 class SessionToken(SQLModel, table=True):

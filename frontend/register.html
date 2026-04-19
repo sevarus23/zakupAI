@@ -41,6 +41,19 @@
         <!-- Error -->
         <div id="error" class="auth-error hidden"></div>
 
+        <!-- Success (shown after registration, awaiting admin approval) -->
+        <div id="success" class="auth-success hidden" style="background: #f0f7ff; border: 1px solid #c7dcff; color: #1a3a7c; padding: 20px; border-radius: 12px; line-height: 1.5;">
+          <div style="font-weight: 600; font-size: 16px; margin-bottom: 8px;">Заявка отправлена</div>
+          <div style="font-size: 14px;">
+            Спасибо за регистрацию. Мы вручную проверяем новые аккаунты на этапе пилота —
+            это занимает обычно несколько часов в рабочее время. После подтверждения вы
+            получите письмо на указанный email и сможете войти.
+          </div>
+          <div style="margin-top: 16px;">
+            <a href="login.html" class="auth-tab" style="display:inline-block; padding: 8px 16px; text-decoration: none;">На страницу входа</a>
+          </div>
+        </div>
+
         <!-- Register Form -->
         <form id="registerForm" class="auth-form" novalidate>
           <div class="auth-field">
@@ -161,7 +174,6 @@
         submitBtn.textContent = 'Регистрация...';
 
         try {
-          // Register
           await API.apiFetch('/auth/register', {
             method: 'POST',
             body: {
@@ -172,13 +184,8 @@
             },
           });
 
-          // Auto-login after successful registration
-          var data = await API.apiFetch('/auth/login', {
-            method: 'POST',
-            body: { email: email, password: password },
-          });
-          Auth.saveAuth(data.token, data.user);
-          window.location.href = '/';
+          form.classList.add('hidden');
+          document.getElementById('success').classList.remove('hidden');
         } catch (err) {
           errorDiv.textContent = err.message || 'Ошибка регистрации';
           errorDiv.classList.remove('hidden');

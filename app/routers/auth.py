@@ -1,9 +1,13 @@
+import threading
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select
 
 from .. import auth
 from ..database import get_session
 from ..models import User
+from ..notify import send_registration_notification
 from ..schemas import LoginRequest, RegisterRequest, TokenResponse, UserRead
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -32,10 +36,18 @@ def register_user(payload: RegisterRequest, session=Depends(get_session)) -> Use
         password_hash=hashed,
         full_name=payload.full_name,
         organization=payload.organization,
+        is_active=False,
     )
     session.add(user)
     session.commit()
     session.refresh(user)
+
+    threading.Thread(
+        target=send_registration_notification,
+        args=(user.email, user.full_name, user.organization),
+        daemon=True,
+    ).start()
+
     return user
 
 
@@ -46,7 +58,18 @@ def login_user(payload: LoginRequest, session=Depends(get_session)) -> TokenResp
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "pending_approval",
+                "message": "Ваш аккаунт ожидает подтверждения администратором.",
+            },
+        )
+
+    user.last_login_at = datetime.utcnow()
+    session.add(user)
+    session.commit()
+    session.refresh(user)
 
     token = auth.create_access_token(user.id)
     return TokenResponse(

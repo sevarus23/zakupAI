@@ -44,6 +44,7 @@ def _ensure_user_columns() -> None:
         "organization": "VARCHAR",
         "is_admin": "BOOLEAN DEFAULT FALSE",
         "is_active": "BOOLEAN DEFAULT TRUE",
+        "last_login_at": "TIMESTAMP",
     }
     with engine.begin() as conn:
         inspector = inspect(conn)
