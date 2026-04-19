@@ -3,14 +3,16 @@ name: Deploy to VPS
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────
-  # Stage 1: cheap syntax validation. Runs on every push and blocks
-  # deploy if anything obvious is broken. Catches the class of bugs
-  # where a typo would otherwise reach production.
+  # Stage 1: cheap syntax validation. Runs on PRs (so branch-protection
+  # can require it before merge) and on pushes to main. Named `test`
+  # so the required-status-check in branch protection matches this job.
   # ─────────────────────────────────────────────────────────────────────
-  validate:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,10 +49,13 @@ jobs:
           grep -q '<script src="js/app.js' frontend/index.html
 
   # ─────────────────────────────────────────────────────────────────────
-  # Stage 2: deploy. Only runs if validate passed.
+  # Stage 2: deploy. Only runs on push to main (never on PRs) and only
+  # if `test` passed. PRs run `test` alone so branch-protection can gate
+  # the merge; production deploy waits for the merge commit itself.
   # ─────────────────────────────────────────────────────────────────────
   deploy:
-    needs: validate
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
