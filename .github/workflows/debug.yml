@@ -15,6 +15,9 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /opt/zakupai
+            echo "=== GIT REMOTE (для проверки перед переключением в private) ==="
+            git remote -v
+            echo ""
             echo "=== GIT STATE ==="
             git log --oneline -5
             git status
