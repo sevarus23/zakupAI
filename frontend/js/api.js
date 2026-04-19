@@ -82,12 +82,15 @@
   }
 
   /**
-   * Convert a tech-task document (docx/pdf) to markdown via doc-to-md service.
+   * Convert a tech-task document (docx/pdf) to markdown.
    *
-   * @param {File} file - File object to convert
-   * @returns {Promise<any>}
+   * When ``purchaseId`` is provided, the upload is routed through the
+   * backend (`POST /api/purchases/{id}/files/upload`), which persists the
+   * original file to disk and then proxies the bytes to doc-to-md. Without
+   * a purchase context the call falls back to direct doc-to-md conversion
+   * (used by the admin sandbox tab, which has no ownership).
    */
-  async function convertTechTaskFile(file, purchaseId) {
+  async function convertTechTaskFile(file, purchaseId, fileType) {
     var formData = new FormData();
     formData.append('file', file);
 
@@ -97,7 +100,15 @@
       headers['Authorization'] = 'Bearer ' + token;
     }
 
-    var response = await fetch(CONFIG.DOC_TO_MD_URL + '/convert', {
+    var url;
+    if (purchaseId) {
+      formData.append('file_type', fileType || 'tz');
+      url = CONFIG.API_URL + '/purchases/' + encodeURIComponent(purchaseId) + '/files/upload';
+    } else {
+      url = CONFIG.DOC_TO_MD_URL + '/convert';
+    }
+
+    var response = await fetch(url, {
       method: 'POST',
       headers: headers,
       body: formData,
@@ -125,10 +136,10 @@
 
     var data = await response.json();
 
-    // Track Mistral OCR usage if returned by doc-to-md
-    if (data && data.usage) {
+    // Track Mistral OCR usage when we went direct to doc-to-md. The backend
+    // upload endpoint records usage server-side itself (single source of truth).
+    if (!purchaseId && data && data.usage) {
       var trackBody = { usage: data.usage };
-      if (purchaseId) trackBody.purchase_id = purchaseId;
       apiFetch('/admin/track-conversion', {
         method: 'POST',
         body: trackBody,

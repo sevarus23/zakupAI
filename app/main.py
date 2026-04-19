@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import select, func, col
 from sqlalchemy import delete as sa_delete, update as sa_update
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 from io import BytesIO
 
 import pandas as pd
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from . import auth
 from .database import create_db_and_tables, get_session
@@ -324,6 +324,124 @@ def list_purchase_files(
         PurchaseFileRead(id=f.id, filename=f.filename, file_type=f.file_type, created_at=f.created_at)
         for f in files
     ]
+
+
+@app.post("/purchases/{purchase_id}/files/upload", status_code=status.HTTP_201_CREATED)
+async def upload_purchase_file(
+    purchase_id: int,
+    file: UploadFile = File(...),
+    file_type: str = Form(default="tz"),
+    session=Depends(get_session),
+    current_user: User = Depends(auth.get_current_user),
+) -> dict:
+    """Accept a ТЗ/КП upload: persist the original bytes under UPLOADS_DIR,
+    then forward the same bytes to doc-to-md for markdown extraction.
+
+    This is the single write-path for ownership-scoped files — the sandbox
+    conversion endpoint (`/admin/sandbox/convert`) still goes direct to
+    doc-to-md because it isn't tied to a purchase.
+    """
+    import httpx
+    from .services.file_storage import resolve as _resolve, save_stream
+
+    purchase = session.get(Purchase, purchase_id)
+    if not purchase or purchase.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase not found")
+
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File is required")
+
+    # Persist to disk first (source of truth). doc-to-md gets the bytes from
+    # the stored copy — if conversion fails we still keep the upload.
+    meta = save_stream(
+        user_id=current_user.id,
+        purchase_id=purchase_id,
+        original_filename=file.filename,
+        stream=file.file,
+    )
+
+    pf = PurchaseFile(
+        purchase_id=purchase_id,
+        filename=file.filename,
+        file_type=file_type,
+        storage_path=meta["storage_path"],
+        size_bytes=meta["size_bytes"],
+        mime_type=file.content_type,
+        sha256=meta["sha256"],
+    )
+    session.add(pf)
+    session.commit()
+    session.refresh(pf)
+
+    try:
+        disk_path = _resolve(meta["storage_path"])
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Stored file not found after save")
+
+    doc_to_md_url = os.getenv("DOC_TO_MD_URL", "http://doc-to-md:8001")
+    markdown = ""
+    usage = None
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            with disk_path.open("rb") as fh:
+                files_payload = {"file": (file.filename, fh, file.content_type or "application/octet-stream")}
+                resp = await client.post(f"{doc_to_md_url}/convert", files=files_payload)
+        if resp.status_code == 200:
+            data = resp.json()
+            markdown = data.get("markdown", "") or ""
+            usage = data.get("usage")
+        else:
+            logger.warning("[upload] doc-to-md returned %s: %s", resp.status_code, resp.text[:500])
+            raise HTTPException(status_code=502, detail=f"Conversion failed ({resp.status_code})")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("[upload] conversion error")
+        raise HTTPException(status_code=502, detail=f"Conversion error: {exc}")
+
+    # Record Mistral OCR usage server-side (single source of truth; the
+    # /admin/track-conversion endpoint is no longer called from the upload path)
+    if usage:
+        try:
+            from .usage_tracking import record_usage, save_trace
+            usage_id = record_usage(
+                channel="mistral_ocr",
+                operation="pdf_conversion",
+                model=usage.get("model"),
+                duration_ms=usage.get("duration_ms"),
+                prompt_tokens=usage.get("prompt_tokens"),
+                completion_tokens=usage.get("completion_tokens"),
+                total_tokens=usage.get("total_tokens"),
+                purchase_id=purchase_id,
+                user_id=current_user.id,
+                request_count=1,
+            )
+            if usage_id:
+                pages = usage.get("pages_count")
+                summary = "Mistral OCR: model={}, pages={}, duration={}ms".format(
+                    usage.get("model", "?"), pages or "?", usage.get("duration_ms", "?"),
+                )
+                save_trace(
+                    usage_id=usage_id,
+                    request_messages=[{"role": "system", "content": "PDF → Markdown conversion via Mistral OCR API"}],
+                    response_content=summary,
+                    duration_ms=usage.get("duration_ms"),
+                )
+        except Exception:
+            logger.exception("[upload] record_usage failed")
+
+    return {
+        "file": {
+            "id": pf.id,
+            "filename": pf.filename,
+            "file_type": pf.file_type,
+            "size_bytes": pf.size_bytes,
+            "sha256": pf.sha256,
+            "created_at": pf.created_at.isoformat() + "Z",
+        },
+        "markdown": markdown,
+        "usage": usage,
+    }
 
 
 def _load_lots(session, purchase_id: int) -> list[LotRead]:

@@ -42,6 +42,10 @@ class PurchaseFile(SQLModel, table=True):
     purchase_id: int = Field(foreign_key="purchase.id")
     filename: str
     file_type: str  # "tz", "kp", "regime_kp"
+    storage_path: Optional[str] = None  # relative path inside UPLOADS_DIR
+    size_bytes: Optional[int] = None
+    mime_type: Optional[str] = None
+    sha256: Optional[str] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

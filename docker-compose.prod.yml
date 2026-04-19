@@ -39,10 +39,20 @@ services:
       QUERY_DOCS_LIMIT: ${QUERY_DOCS_LIMIT:-3}
       ENABLE_EMBEDDED_QUEUE: ${ENABLE_EMBEDDED_QUEUE:-true}
       GISP_SCRAPER_URL: ${GISP_SCRAPER_URL:-http://gisp-scraper:8000}
+      DOC_TO_MD_URL: ${DOC_TO_MD_URL:-http://doc-to-md:8001}
+      UPLOADS_DIR: ${UPLOADS_DIR:-/app/data/uploads}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      NOTIFY_EMAIL: ${NOTIFY_EMAIL:-}
+      ADMIN_URL: ${ADMIN_URL:-https://app.zakupai.tech/admin.html}
       LLM_TRACE_ENABLED: ${LLM_TRACE_ENABLED:-false}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
+    volumes:
+      - uploads_data:/app/data/uploads
     expose:
       - "8000"
 
@@ -168,3 +178,4 @@ services:
 volumes:
   db_data:
   doc_to_md_models:
+  uploads_data:

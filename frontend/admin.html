@@ -176,6 +176,7 @@
                   <th>Последний вход</th>
                   <th>Статус</th>
                   <th>Роль</th>
+                  <th>Детали</th>
                 </tr>
               </thead>
               <tbody id="users-tbody"></tbody>
@@ -328,6 +329,22 @@
       </section>
 
     </main>
+
+    <!-- ======== User Detail Modal ======== -->
+    <div id="user-detail-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); z-index: 100; display: none; overflow: auto;">
+      <div style="max-width: 1100px; margin: 40px auto; background: var(--color-white, #fff); border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); overflow: hidden;">
+        <div style="display:flex; justify-content: space-between; align-items: center; padding: 20px 28px; border-bottom: 1px solid var(--color-border, #e5e7eb);">
+          <div>
+            <div id="ud-title" style="font-size: 18px; font-weight: 600;">Детали пользователя</div>
+            <div id="ud-subtitle" style="font-size: 13px; color: var(--text-muted, #64748b); margin-top: 4px;"></div>
+          </div>
+          <button id="ud-close" class="btn btn-sm btn-outline">Закрыть</button>
+        </div>
+        <div id="ud-body" style="padding: 24px 28px;">
+          <div style="text-align: center; color: var(--text-muted, #64748b);">Загрузка...</div>
+        </div>
+      </div>
+    </div>
 
     <!-- ======== Scripts ======== -->
     <script src="js/config.js"></script>
@@ -509,8 +526,16 @@
                 + '<td>' + lastLogin + '</td>'
                 + '<td>' + statusBadge(u.is_active !== false) + '</td>'
                 + '<td>' + (u.is_admin ? '<span class="admin-badge admin-badge-completed">Админ</span>' : '<span class="admin-badge admin-badge-draft">Пользователь</span>') + ' ' + adminBtn + '</td>'
+                + '<td><button class="btn btn-sm btn-outline btn-open-detail" data-uid="' + u.id + '" style="font-size:12px;">Открыть</button></td>'
                 + '</tr>';
             }).join('');
+
+            // Bind detail buttons
+            tbody.querySelectorAll('.btn-open-detail').forEach(function (btn) {
+              btn.addEventListener('click', function () {
+                showUserDetail(this.getAttribute('data-uid'));
+              });
+            });
 
             // Bind toggle admin buttons
             tbody.querySelectorAll('.btn-toggle-admin').forEach(function (btn) {
@@ -669,6 +694,178 @@
         }
 
         document.getElementById('usage-days').addEventListener('change', loadUsage);
+
+        // --- User detail modal ---
+        function formatBytes(n) {
+          if (n == null) return '—';
+          if (n < 1024) return n + ' B';
+          if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+          return (n / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        async function downloadFile(purchaseId, fileId, filename) {
+          var token = localStorage.getItem(CONFIG.TOKEN_KEY);
+          try {
+            var resp = await fetch(CONFIG.API_URL + '/admin/purchases/' + purchaseId + '/files/' + fileId + '/download', {
+              headers: { Authorization: 'Bearer ' + token },
+            });
+            if (!resp.ok) {
+              var body = await resp.text();
+              throw new Error('HTTP ' + resp.status + ': ' + body.slice(0, 200));
+            }
+            var blob = await resp.blob();
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = filename || 'file';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+          } catch (err) {
+            alert('Не удалось скачать файл: ' + (err.message || err));
+          }
+        }
+
+        async function downloadSnapshot(purchaseId, purchaseName) {
+          try {
+            var data = await API.apiFetch('/admin/purchases/' + purchaseId + '/snapshot');
+            var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'snapshot-' + purchaseId + '-' + (purchaseName || 'purchase').replace(/[^a-zA-Zа-яА-Я0-9_-]/g, '_').slice(0, 40) + '.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+          } catch (err) {
+            alert('Не удалось получить snapshot: ' + (err.message || err));
+          }
+        }
+
+        function renderUserDetail(data) {
+          var u = data.user;
+          var totals = data.totals || {};
+          document.getElementById('ud-title').textContent = u.email;
+          document.getElementById('ud-subtitle').textContent = (u.full_name ? u.full_name + ' · ' : '') + (u.organization || '—')
+            + ' · регистрация: ' + formatDate(u.created_at)
+            + (u.last_login_at ? ' · вход: ' + formatDate(u.last_login_at) : ' · ни разу не заходил');
+
+          var statusPill = u.is_active
+            ? '<span class="admin-badge admin-badge-active">Активен</span>'
+            : '<span class="admin-badge admin-badge-draft">Ожидает подтверждения</span>';
+          var rolePill = u.is_admin
+            ? '<span class="admin-badge admin-badge-completed">Админ</span>'
+            : '<span class="admin-badge admin-badge-draft">Пользователь</span>';
+
+          var statsRow = ''
+            + '<div class="admin-stats" style="margin-bottom:20px;">'
+            +   '<div class="stat-card"><div class="stat-content"><div class="stat-value">' + totals.purchase_count + '</div><div class="stat-label">Закупок</div></div></div>'
+            +   '<div class="stat-card"><div class="stat-content"><div class="stat-value">' + totals.file_count + '</div><div class="stat-label">Файлов</div></div></div>'
+            +   '<div class="stat-card"><div class="stat-content"><div class="stat-value">' + formatNumber(totals.llm_tokens) + '</div><div class="stat-label">Токенов за ' + data.usage_window_days + 'д</div></div></div>'
+            +   '<div class="stat-card"><div class="stat-content"><div class="stat-value">' + formatCost(totals.llm_cost_usd) + '</div><div class="stat-label">Стоимость за ' + data.usage_window_days + 'д</div></div></div>'
+            + '</div>';
+
+          var usage = data.usage_by_operation || [];
+          var usageHtml = '';
+          if (usage.length) {
+            usageHtml = '<h3 style="margin: 16px 0 8px 0; font-size: 14px; font-weight:600;">LLM за ' + data.usage_window_days + ' дней, по операциям</h3>'
+              + '<div class="table-wrap"><table class="admin-table"><thead><tr>'
+              + '<th>Операция</th><th>Канал</th><th>Вызовов</th><th>Токенов</th><th>Стоимость</th></tr></thead><tbody>'
+              + usage.map(function (r) {
+                  return '<tr><td>' + escapeHtml(r.operation) + '</td><td>' + escapeHtml(r.channel) + '</td>'
+                    + '<td>' + formatNumber(r.calls) + '</td><td>' + formatNumber(r.total_tokens) + '</td>'
+                    + '<td>' + formatCost(r.cost_usd) + '</td></tr>';
+                }).join('')
+              + '</tbody></table></div>';
+          }
+
+          var purchases = data.purchases || [];
+          var purchasesHtml = '<h3 style="margin: 20px 0 8px 0; font-size: 14px; font-weight:600;">Закупки (' + purchases.length + ')</h3>';
+          if (!purchases.length) {
+            purchasesHtml += '<div style="color: var(--text-muted, #64748b);">Нет закупок.</div>';
+          } else {
+            purchasesHtml += purchases.map(function (p) {
+              var filesHtml = (p.files || []).map(function (f) {
+                var info = '<span style="color:var(--text-muted,#64748b);">' + escapeHtml(f.file_type) + ' · ' + formatBytes(f.size_bytes) + '</span>';
+                if (f.has_original) {
+                  return '<button class="btn btn-sm btn-outline btn-dl-file" data-pid="' + p.id + '" data-fid="' + f.id + '" data-fn="' + escapeHtml(f.filename) + '" style="margin:2px 4px 2px 0; font-size:12px;">⬇ ' + escapeHtml(f.filename) + '</button> ' + info;
+                }
+                return '<span style="margin:2px 4px 2px 0; color: var(--text-muted,#64748b); font-size:12px;" title="Загружено до включения хранения файлов">' + escapeHtml(f.filename) + ' (оригинал не сохранён) · ' + info + '</span>';
+              }).join('<br>');
+              var name = escapeHtml(p.custom_name || p.full_name);
+              var arch = p.is_archived ? ' <span class="admin-badge admin-badge-draft">Архив</span>' : '';
+              return '<div style="border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px; padding: 12px 16px; margin-bottom: 10px;">'
+                + '<div style="display:flex; justify-content: space-between; align-items: start; gap:12px;">'
+                +   '<div>'
+                +     '<div style="font-weight: 600;">#' + p.auto_number + ' — ' + name + arch + '</div>'
+                +     '<div style="font-size: 12px; color: var(--text-muted, #64748b); margin-top: 4px;">'
+                +       'Создана: ' + formatDate(p.created_at)
+                +       ' · Лотов: ' + p.lots_count
+                +       ' · Поставщиков: ' + p.suppliers_count
+                +       ' · КП: ' + p.bids_count
+                +     '</div>'
+                +   '</div>'
+                +   '<button class="btn btn-sm btn-outline btn-snapshot" data-pid="' + p.id + '" data-pname="' + name + '" style="font-size:12px;">📦 JSON snapshot</button>'
+                + '</div>'
+                + (filesHtml ? '<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--color-border, #e5e7eb);">' + filesHtml + '</div>' : '')
+                + '</div>';
+            }).join('');
+          }
+
+          var body = document.getElementById('ud-body');
+          body.innerHTML = ''
+            + '<div style="margin-bottom: 16px;">' + statusPill + ' ' + rolePill + '</div>'
+            + statsRow
+            + usageHtml
+            + purchasesHtml;
+
+          body.querySelectorAll('.btn-dl-file').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              downloadFile(this.getAttribute('data-pid'), this.getAttribute('data-fid'), this.getAttribute('data-fn'));
+            });
+          });
+          body.querySelectorAll('.btn-snapshot').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              downloadSnapshot(this.getAttribute('data-pid'), this.getAttribute('data-pname'));
+            });
+          });
+        }
+
+        function openDetailModal() {
+          var modal = document.getElementById('user-detail-modal');
+          modal.style.display = 'block';
+          modal.classList.remove('hidden');
+          document.body.style.overflow = 'hidden';
+        }
+
+        function closeDetailModal() {
+          var modal = document.getElementById('user-detail-modal');
+          modal.style.display = 'none';
+          modal.classList.add('hidden');
+          document.body.style.overflow = '';
+        }
+
+        async function showUserDetail(userId) {
+          openDetailModal();
+          document.getElementById('ud-body').innerHTML = '<div style="text-align: center; color: var(--text-muted, #64748b); padding: 40px;">Загрузка...</div>';
+          try {
+            var data = await API.apiFetch('/admin/users/' + userId + '/detail?days=30');
+            if (!data) return;
+            renderUserDetail(data);
+          } catch (err) {
+            document.getElementById('ud-body').innerHTML = '<div style="color: var(--color-red, #b91c1c); padding: 20px;">Ошибка загрузки: ' + escapeHtml(err.message || String(err)) + '</div>';
+          }
+        }
+
+        document.getElementById('ud-close').addEventListener('click', closeDetailModal);
+        document.getElementById('user-detail-modal').addEventListener('click', function (e) {
+          if (e.target === this) closeDetailModal();
+        });
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') closeDetailModal();
+        });
 
         // --- Pending card → scroll to section ---
         var pendingCard = document.getElementById('stat-pending-users');

@@ -14,7 +14,23 @@ logger = logging.getLogger(__name__)
 
 from ..auth import get_admin_user
 from ..database import get_session
-from ..models import Lead, LLMTask, LLMTrace, LLMUsage, Lot, Purchase, User
+from ..models import (
+    Bid,
+    BidLot,
+    BidLotParameter,
+    Lead,
+    LLMTask,
+    LLMTrace,
+    LLMUsage,
+    Lot,
+    LotParameter,
+    Purchase,
+    PurchaseFile,
+    RegimeCheck,
+    RegimeCheckItem,
+    Supplier,
+    User,
+)
 from ..notify import send_activation_notification
 from ..schemas import AdminDashboard, AdminPurchaseRead, AdminUserRead, LeadRead
 
@@ -701,3 +717,314 @@ async def run_sandbox_step(
             "trace": None,
             "error": str(exc),
         }
+
+
+# ---------------------------------------------------------------------------
+# Per-user detail + original file downloads (PR 2)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/users/{user_id}/detail")
+def get_user_detail(
+    user_id: int,
+    days: int = Query(default=30, ge=1, le=365),
+    _admin: User = Depends(get_admin_user),
+    session=Depends(get_session),
+) -> dict:
+    """Full profile for one user: purchases, file counts, LLM usage by operation.
+
+    Used by the admin UI "Детали пользователя" modal — this is the main
+    surface for collecting pilot usage insights and reviewing customer data.
+    """
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    since = datetime.utcnow() - timedelta(days=days)
+
+    purchases = session.exec(
+        select(Purchase)
+        .where(Purchase.user_id == user_id)
+        .order_by(col(Purchase.created_at).desc())
+    ).all()
+
+    purchases_payload = []
+    total_files = 0
+    for p in purchases:
+        lots_count = session.exec(
+            select(func.count(Lot.id)).where(Lot.purchase_id == p.id)
+        ).one()
+        suppliers_count = session.exec(
+            select(func.count(Supplier.id)).where(Supplier.purchase_id == p.id)
+        ).one()
+        bids_count = session.exec(
+            select(func.count(Bid.id)).where(Bid.purchase_id == p.id)
+        ).one()
+        files = session.exec(
+            select(PurchaseFile)
+            .where(PurchaseFile.purchase_id == p.id)
+            .order_by(col(PurchaseFile.created_at).desc())
+        ).all()
+        total_files += len(files)
+        purchases_payload.append({
+            "id": p.id,
+            "auto_number": p.auto_number,
+            "full_name": p.full_name,
+            "custom_name": p.custom_name,
+            "status": p.status,
+            "is_archived": p.is_archived,
+            "created_at": p.created_at.isoformat() + "Z",
+            "updated_at": p.updated_at.isoformat() + "Z" if p.updated_at else None,
+            "lots_count": int(lots_count or 0),
+            "suppliers_count": int(suppliers_count or 0),
+            "bids_count": int(bids_count or 0),
+            "files": [
+                {
+                    "id": f.id,
+                    "filename": f.filename,
+                    "file_type": f.file_type,
+                    "size_bytes": f.size_bytes,
+                    "mime_type": f.mime_type,
+                    "has_original": bool(f.storage_path),
+                    "created_at": f.created_at.isoformat() + "Z",
+                }
+                for f in files
+            ],
+        })
+
+    usage_filter = [LLMUsage.user_id == user_id, col(LLMUsage.created_at) >= since]
+    totals_row = session.exec(
+        select(
+            func.count(LLMUsage.id),
+            func.coalesce(func.sum(LLMUsage.total_tokens), 0),
+            func.coalesce(func.sum(LLMUsage.cost_usd), 0.0),
+            func.coalesce(func.sum(LLMUsage.request_count), 0),
+        ).where(*usage_filter)
+    ).one()
+
+    by_operation_rows = session.exec(
+        select(
+            LLMUsage.operation,
+            LLMUsage.channel,
+            func.count(LLMUsage.id),
+            func.coalesce(func.sum(LLMUsage.total_tokens), 0),
+            func.coalesce(func.sum(LLMUsage.cost_usd), 0.0),
+        )
+        .where(*usage_filter)
+        .group_by(LLMUsage.operation, LLMUsage.channel)
+        .order_by(func.count(LLMUsage.id).desc())
+    ).all()
+
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "organization": user.organization,
+            "is_admin": user.is_admin,
+            "is_active": user.is_active,
+            "created_at": user.created_at.isoformat() + "Z",
+            "last_login_at": user.last_login_at.isoformat() + "Z" if user.last_login_at else None,
+        },
+        "totals": {
+            "purchase_count": len(purchases),
+            "file_count": total_files,
+            "llm_calls": int(totals_row[0] or 0),
+            "llm_tokens": int(totals_row[1] or 0),
+            "llm_cost_usd": round(float(totals_row[2] or 0.0), 6),
+            "llm_requests": int(totals_row[3] or 0),
+        },
+        "usage_window_days": days,
+        "usage_by_operation": [
+            {
+                "operation": r[0],
+                "channel": r[1],
+                "calls": int(r[2] or 0),
+                "total_tokens": int(r[3] or 0),
+                "cost_usd": round(float(r[4] or 0.0), 6),
+            }
+            for r in by_operation_rows
+        ],
+        "purchases": purchases_payload,
+    }
+
+
+@router.get("/purchases/{purchase_id}/files/{file_id}/download")
+def admin_download_purchase_file(
+    purchase_id: int,
+    file_id: int,
+    _admin: User = Depends(get_admin_user),
+    session=Depends(get_session),
+):
+    """Admin-only download of the original uploaded file (ТЗ/КП).
+
+    Returns 404 if the file was uploaded before PR 2 (no storage_path).
+    """
+    from fastapi.responses import FileResponse
+    from ..services.file_storage import resolve
+
+    pf = session.get(PurchaseFile, file_id)
+    if not pf or pf.purchase_id != purchase_id:
+        raise HTTPException(status_code=404, detail="File not found")
+    if not pf.storage_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Original file not stored — uploaded before file persistence was enabled",
+        )
+    try:
+        disk = resolve(pf.storage_path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File is referenced in DB but missing on disk")
+
+    return FileResponse(
+        path=str(disk),
+        media_type=pf.mime_type or "application/octet-stream",
+        filename=pf.filename,
+    )
+
+
+@router.get("/purchases/{purchase_id}/snapshot")
+def admin_purchase_snapshot(
+    purchase_id: int,
+    _admin: User = Depends(get_admin_user),
+    session=Depends(get_session),
+) -> dict:
+    """JSON dump of everything we have about a purchase — for offline analysis."""
+    purchase = session.get(Purchase, purchase_id)
+    if not purchase:
+        raise HTTPException(status_code=404, detail="Purchase not found")
+
+    user = session.get(User, purchase.user_id)
+
+    lots = session.exec(select(Lot).where(Lot.purchase_id == purchase_id)).all()
+    lots_payload = []
+    for lot in lots:
+        params = session.exec(
+            select(LotParameter).where(LotParameter.lot_id == lot.id)
+        ).all()
+        lots_payload.append({
+            "id": lot.id,
+            "name": lot.name,
+            "parameters": [
+                {"name": pr.name, "value": pr.value, "units": pr.units}
+                for pr in params
+            ],
+        })
+
+    suppliers = session.exec(
+        select(Supplier).where(Supplier.purchase_id == purchase_id)
+    ).all()
+
+    bids = session.exec(select(Bid).where(Bid.purchase_id == purchase_id)).all()
+    bids_payload = []
+    for bid in bids:
+        bid_lots = session.exec(select(BidLot).where(BidLot.bid_id == bid.id)).all()
+        bid_lots_payload = []
+        for bl in bid_lots:
+            params = session.exec(
+                select(BidLotParameter).where(BidLotParameter.bid_lot_id == bl.id)
+            ).all()
+            bid_lots_payload.append({
+                "id": bl.id,
+                "name": bl.name,
+                "price": bl.price,
+                "registry_number": bl.registry_number,
+                "okpd2_code": bl.okpd2_code,
+                "parameters": [
+                    {"name": pr.name, "value": pr.value, "units": pr.units}
+                    for pr in params
+                ],
+            })
+        bids_payload.append({
+            "id": bid.id,
+            "supplier_name": bid.supplier_name,
+            "supplier_contact": bid.supplier_contact,
+            "created_at": bid.created_at.isoformat() + "Z",
+            "bid_lots": bid_lots_payload,
+        })
+
+    regime_checks = session.exec(
+        select(RegimeCheck).where(RegimeCheck.purchase_id == purchase_id)
+    ).all()
+    regime_payload = []
+    for rc in regime_checks:
+        items = session.exec(
+            select(RegimeCheckItem).where(RegimeCheckItem.check_id == rc.id)
+        ).all()
+        regime_payload.append({
+            "id": rc.id,
+            "status": rc.status,
+            "filename": rc.filename,
+            "created_at": rc.created_at.isoformat() + "Z",
+            "ok_count": rc.ok_count,
+            "warning_count": rc.warning_count,
+            "error_count": rc.error_count,
+            "not_found_count": rc.not_found_count,
+            "items": [
+                {
+                    "id": it.id,
+                    "product_name": it.product_name,
+                    "registry_number": it.registry_number,
+                    "okpd2_code": it.okpd2_code,
+                    "overall_status": it.overall_status,
+                    "registry_status": it.registry_status,
+                    "localization_status": it.localization_status,
+                    "gisp_status": it.gisp_status,
+                }
+                for it in items
+            ],
+        })
+
+    files = session.exec(
+        select(PurchaseFile)
+        .where(PurchaseFile.purchase_id == purchase_id)
+        .order_by(col(PurchaseFile.created_at).desc())
+    ).all()
+
+    return {
+        "purchase": {
+            "id": purchase.id,
+            "user_id": purchase.user_id,
+            "user_email": user.email if user else None,
+            "auto_number": purchase.auto_number,
+            "full_name": purchase.full_name,
+            "custom_name": purchase.custom_name,
+            "terms_text": purchase.terms_text,
+            "status": purchase.status,
+            "nmck_value": purchase.nmck_value,
+            "nmck_currency": purchase.nmck_currency,
+            "is_archived": purchase.is_archived,
+            "created_at": purchase.created_at.isoformat() + "Z",
+            "updated_at": purchase.updated_at.isoformat() + "Z" if purchase.updated_at else None,
+        },
+        "lots": lots_payload,
+        "suppliers": [
+            {
+                "id": s.id,
+                "company_name": s.company_name,
+                "website_url": s.website_url,
+                "relevance_score": s.relevance_score,
+                "reason": s.reason,
+            }
+            for s in suppliers
+        ],
+        "bids": bids_payload,
+        "regime_checks": regime_payload,
+        "files": [
+            {
+                "id": f.id,
+                "filename": f.filename,
+                "file_type": f.file_type,
+                "size_bytes": f.size_bytes,
+                "mime_type": f.mime_type,
+                "sha256": f.sha256,
+                "has_original": bool(f.storage_path),
+                "download_url": (
+                    f"/admin/purchases/{purchase_id}/files/{f.id}/download"
+                    if f.storage_path else None
+                ),
+                "created_at": f.created_at.isoformat() + "Z",
+            }
+            for f in files
+        ],
+    }
