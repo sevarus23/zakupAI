@@ -4,9 +4,10 @@
 в конце каждой сессии (≤2 строки на пункт). Архитектура, фреймворки, команды
 деплоя — в `AGENTS.md` и памяти `~/.claude/projects/.../memory/zakupai_project.md`.
 
-## Current State (2026-04-20, HEAD a551704)
+## Current State (2026-04-20, HEAD f6b3815)
 
-- **Admin list fix (a551704, на проде):** `AdminUserRead.email` — `EmailStr` → `str`, потому что `deleted+{id}@anonymized.local` (маркер soft-delete) режется email-validator'ом (`.local` — reserved TLD, RFC 6762) и валил `/admin/users` в 500 после любого удаления. Плюс: `loadUsers.catch` теперь рендерит visible error-row (раньше silent `console.error` прятал 500 за пустой таблицей и зависшей «Удаление…» кнопкой), и обезличенные исключаются из `/admin/users?is_active=false` (иначе светились в «Заявках на доступ»).
+- **Admin freeze/delete split (f6b3815, на проде):** два независимых действия в админке. `PATCH /admin/users/{id}/freeze` — soft-block (`is_active=false`, `frozen_at=now`, revoke sessions, данные сохраняются); `PATCH /admin/users/{id}/unfreeze` — обратное; `DELETE /admin/users/{id}` — как и раньше, анонимизация 152-ФЗ (необратимо). `GET /admin/users?status=active|pending|frozen|deleted` — явный фильтр, старый `is_active` оставлен для совместимости. `AdminDashboard` разделён на `pending/frozen/deleted_users_count`. Фронт: две collapsible-секции «Замороженные» и «Удалённые» после «Пользователи» (свёрнуты по умолчанию), активный список — только `status=active`. Миграция `frozen_at TIMESTAMP NULL` в `_ensure_user_columns`.
+- **Admin list fix (a551704, на проде):** `AdminUserRead.email` — `EmailStr` → `str`, потому что `deleted+{id}@anonymized.local` (маркер soft-delete) режется email-validator'ом (`.local` — reserved TLD, RFC 6762) и валил `/admin/users` в 500 после любого удаления. Плюс: `loadUsers.catch` теперь рендерит visible error-row, и обезличенные исключаются из pending-списка.
 
 
 - **Деплой:** push в `main` → GitHub Actions валидирует (`py_compile` + `node --check` + HTML smoke) и деплоит по SSH на VPS с `--no-cache` + `--force-recreate` + verify через `/build.txt` и `/api/health`. Без этих трёх проверок — push and pray.
