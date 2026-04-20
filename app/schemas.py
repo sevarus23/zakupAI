@@ -41,6 +41,8 @@ class AdminDashboard(BaseModel):
     total_purchases: int
     purchases_today: int
     pending_users_count: int = 0
+    frozen_users_count: int = 0
+    deleted_users_count: int = 0
 
 
 class AdminUserRead(BaseModel):
@@ -52,6 +54,7 @@ class AdminUserRead(BaseModel):
     is_active: bool
     created_at: datetime
     last_login_at: Optional[datetime] = None
+    frozen_at: Optional[datetime] = None
     purchase_count: int = 0
 
 

@@ -185,6 +185,66 @@
         </div>
       </section>
 
+      <!-- ---- Frozen users (collapsible, default closed) ---- -->
+      <section id="frozen-users-section" class="admin-section" style="margin-bottom: var(--space-8);">
+        <div class="admin-section-header" style="cursor:pointer;user-select:none;" id="frozen-users-header">
+          <h2 class="admin-section-title">
+            <span id="frozen-users-caret" style="display:inline-block;width:1em;">▸</span>
+            Замороженные аккаунты
+            <span id="frozen-users-count" class="admin-badge admin-badge-draft" style="margin-left:8px;">0</span>
+          </h2>
+          <div class="admin-toolbar">
+            <span class="admin-badge admin-badge-draft" style="font-weight:normal;">Мягкая блокировка, обратимо</span>
+          </div>
+        </div>
+        <div class="admin-table-wrap" id="frozen-table-wrap" style="display:none;">
+          <div class="table-wrap">
+            <table class="admin-table" id="frozen-users-table">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>ФИО</th>
+                  <th>Организация</th>
+                  <th>Заморожен</th>
+                  <th>Регистрация</th>
+                  <th style="width:260px;">Действия</th>
+                </tr>
+              </thead>
+              <tbody id="frozen-users-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---- Deleted users (collapsible, default closed, read-only) ---- -->
+      <section id="deleted-users-section" class="admin-section" style="margin-bottom: var(--space-8);">
+        <div class="admin-section-header" style="cursor:pointer;user-select:none;" id="deleted-users-header">
+          <h2 class="admin-section-title">
+            <span id="deleted-users-caret" style="display:inline-block;width:1em;">▸</span>
+            Удалённые аккаунты
+            <span id="deleted-users-count" class="admin-badge admin-badge-draft" style="margin-left:8px;">0</span>
+          </h2>
+          <div class="admin-toolbar">
+            <span class="admin-badge admin-badge-draft" style="font-weight:normal;">152-ФЗ анонимизация, необратимо</span>
+          </div>
+        </div>
+        <div class="admin-table-wrap" id="deleted-table-wrap" style="display:none;">
+          <div class="table-wrap">
+            <table class="admin-table" id="deleted-users-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Маркер</th>
+                  <th>Закупок</th>
+                  <th>Регистрация</th>
+                </tr>
+              </thead>
+              <tbody id="deleted-users-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- ---- Usage Section ---- -->
       <section id="usage-section" class="admin-section" style="margin-bottom: var(--space-8);">
         <div class="admin-section-header">
@@ -467,7 +527,7 @@
                     method: 'PATCH',
                     body: { is_active: true, notify: true },
                   });
-                  await Promise.all([loadDashboard(), loadPendingUsers(), loadUsers(document.getElementById('user-search').value)]);
+                  await refreshUserSections();
                 } catch (err) {
                   alert('Ошибка: ' + (err.message || err));
                   this.disabled = false;
@@ -499,13 +559,24 @@
           }
         }
 
-        // --- Users ---
+        // --- Shared helper: refresh every user-related section after a mutation ---
+        async function refreshUserSections() {
+          var q = (document.getElementById('user-search') || {}).value || '';
+          await Promise.all([
+            loadDashboard(),
+            loadPendingUsers(),
+            loadUsers(q),
+            loadFrozenUsers(),
+            loadDeletedUsers(),
+          ]);
+        }
+
+        // --- Users (только активные: status=active) ---
         async function loadUsers(query) {
           try {
-            var path = '/admin/users';
-            if (query) {
-              path += '?q=' + encodeURIComponent(query);
-            }
+            var params = ['status=active'];
+            if (query) params.push('q=' + encodeURIComponent(query));
+            var path = '/admin/users?' + params.join('&');
             var users = await API.apiFetch(path);
             if (!users) return;
             var tbody = document.getElementById('users-tbody');
@@ -533,9 +604,12 @@
               var purchases = (u.purchase_count != null ? u.purchase_count : (u.purchases_count != null ? u.purchases_count : '—'));
               var lastLogin = u.last_login_at ? formatDate(u.last_login_at) : '—';
               var detailBtn = '<button class="btn btn-sm btn-outline btn-open-detail" data-uid="' + u.id + '" style="font-size:12px;">Открыть</button>';
-              var deleteBtn = (isSelf || isDeleted || protectedFromCurrent)
-                ? ''
-                : ' <button class="btn btn-sm btn-outline btn-delete-user" data-uid="' + u.id + '" data-email="' + escapeHtml(u.email) + '" style="font-size:12px;color:var(--danger);border-color:var(--danger);">Удалить</button>';
+              var actionBtns = '';
+              if (!(isSelf || isDeleted || protectedFromCurrent)) {
+                actionBtns = ' <button class="btn btn-sm btn-outline btn-freeze-user" data-uid="' + u.id + '" data-email="' + escapeHtml(u.email) + '" style="font-size:12px;">Заморозить</button>'
+                  + ' <button class="btn btn-sm btn-outline btn-delete-user" data-uid="' + u.id + '" data-email="' + escapeHtml(u.email) + '" style="font-size:12px;color:var(--danger);border-color:var(--danger);">Удалить</button>';
+              }
+              var deleteBtn = actionBtns;
               return '<tr>'
                 + '<td>' + escapeHtml(u.email) + '</td>'
                 + '<td>' + escapeHtml(u.full_name || '—') + '</td>'
@@ -556,7 +630,29 @@
               });
             });
 
-            // Bind delete buttons
+            // Bind freeze buttons (soft-block)
+            tbody.querySelectorAll('.btn-freeze-user').forEach(function (btn) {
+              btn.addEventListener('click', async function () {
+                var uid = this.getAttribute('data-uid');
+                var email = this.getAttribute('data-email');
+                if (!confirm(
+                  'Заморозить аккаунт ' + email + '?\n\n' +
+                  'Вход станет невозможен, активные сессии сброшены. Данные сохраняются — аккаунт можно разморозить в любой момент.'
+                )) return;
+                this.disabled = true;
+                this.textContent = 'Заморозка...';
+                try {
+                  await API.apiFetch('/admin/users/' + uid + '/freeze', { method: 'PATCH' });
+                  await refreshUserSections();
+                } catch (err) {
+                  alert('Ошибка: ' + (err.message || err));
+                  this.disabled = false;
+                  this.textContent = 'Заморозить';
+                }
+              });
+            });
+
+            // Bind delete buttons (hard anonymization)
             tbody.querySelectorAll('.btn-delete-user').forEach(function (btn) {
               btn.addEventListener('click', async function () {
                 var uid = this.getAttribute('data-uid');
@@ -570,7 +666,7 @@
                 this.textContent = 'Удаление...';
                 try {
                   await API.apiFetch('/admin/users/' + uid, { method: 'DELETE' });
-                  await Promise.all([loadDashboard(), loadPendingUsers(), loadUsers(document.getElementById('user-search').value)]);
+                  await refreshUserSections();
                 } catch (err) {
                   alert('Ошибка: ' + (err.message || err));
                   this.disabled = false;
@@ -620,6 +716,119 @@
             }
           }
         }
+
+        // --- Frozen users (collapsible) ---
+        async function loadFrozenUsers() {
+          var tbody = document.getElementById('frozen-users-tbody');
+          var countEl = document.getElementById('frozen-users-count');
+          try {
+            var users = await API.apiFetch('/admin/users?status=frozen');
+            if (!Array.isArray(users)) users = (users && users.items) || [];
+            countEl.textContent = users.length;
+            if (!users.length) {
+              tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:12px;">Замороженных аккаунтов нет</td></tr>';
+              return;
+            }
+            tbody.innerHTML = users.map(function (u) {
+              var frozenAt = u.frozen_at ? formatDate(u.frozen_at) : '—';
+              return '<tr>'
+                + '<td>' + escapeHtml(u.email) + '</td>'
+                + '<td>' + escapeHtml(u.full_name || '—') + '</td>'
+                + '<td>' + escapeHtml(u.organization || '—') + '</td>'
+                + '<td>' + frozenAt + '</td>'
+                + '<td>' + formatDate(u.created_at) + '</td>'
+                + '<td>'
+                +   '<button class="btn btn-sm btn-primary btn-unfreeze-user" data-uid="' + u.id + '" data-email="' + escapeHtml(u.email) + '" style="font-size:12px;margin-right:6px;">Восстановить</button>'
+                +   '<button class="btn btn-sm btn-outline btn-delete-frozen" data-uid="' + u.id + '" data-email="' + escapeHtml(u.email) + '" style="font-size:12px;color:var(--danger);border-color:var(--danger);">Удалить</button>'
+                + '</td>'
+                + '</tr>';
+            }).join('');
+
+            tbody.querySelectorAll('.btn-unfreeze-user').forEach(function (btn) {
+              btn.addEventListener('click', async function () {
+                var uid = this.getAttribute('data-uid');
+                this.disabled = true;
+                this.textContent = 'Восстановление...';
+                try {
+                  await API.apiFetch('/admin/users/' + uid + '/unfreeze', { method: 'PATCH' });
+                  await refreshUserSections();
+                } catch (err) {
+                  alert('Ошибка: ' + (err.message || err));
+                  this.disabled = false;
+                  this.textContent = 'Восстановить';
+                }
+              });
+            });
+
+            tbody.querySelectorAll('.btn-delete-frozen').forEach(function (btn) {
+              btn.addEventListener('click', async function () {
+                var uid = this.getAttribute('data-uid');
+                var email = this.getAttribute('data-email');
+                if (!confirm(
+                  'Удалить аккаунт ' + email + '?\n\n' +
+                  'Email, ФИО и организация будут обезличены. Действие необратимо.'
+                )) return;
+                this.disabled = true;
+                this.textContent = 'Удаление...';
+                try {
+                  await API.apiFetch('/admin/users/' + uid, { method: 'DELETE' });
+                  await refreshUserSections();
+                } catch (err) {
+                  alert('Ошибка: ' + (err.message || err));
+                  this.disabled = false;
+                  this.textContent = 'Удалить';
+                }
+              });
+            });
+          } catch (err) {
+            console.error('Frozen users load error:', err);
+            countEl.textContent = '?';
+            tbody.innerHTML = '<tr><td colspan="6" style="color:var(--danger);padding:12px;text-align:center;">Ошибка загрузки: ' + escapeHtml(err.message || String(err)) + '</td></tr>';
+          }
+        }
+
+        // --- Deleted / anonymized users (collapsible, read-only) ---
+        async function loadDeletedUsers() {
+          var tbody = document.getElementById('deleted-users-tbody');
+          var countEl = document.getElementById('deleted-users-count');
+          try {
+            var users = await API.apiFetch('/admin/users?status=deleted');
+            if (!Array.isArray(users)) users = (users && users.items) || [];
+            countEl.textContent = users.length;
+            if (!users.length) {
+              tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:12px;">Удалённых аккаунтов нет</td></tr>';
+              return;
+            }
+            tbody.innerHTML = users.map(function (u) {
+              var purchases = (u.purchase_count != null ? u.purchase_count : '—');
+              return '<tr>'
+                + '<td>' + u.id + '</td>'
+                + '<td style="color:var(--text-muted);font-family:monospace;font-size:12px;">' + escapeHtml(u.email) + '</td>'
+                + '<td>' + purchases + '</td>'
+                + '<td>' + formatDate(u.created_at) + '</td>'
+                + '</tr>';
+            }).join('');
+          } catch (err) {
+            console.error('Deleted users load error:', err);
+            countEl.textContent = '?';
+            tbody.innerHTML = '<tr><td colspan="4" style="color:var(--danger);padding:12px;text-align:center;">Ошибка загрузки: ' + escapeHtml(err.message || String(err)) + '</td></tr>';
+          }
+        }
+
+        // --- Collapsible toggle wiring ---
+        function wireCollapsible(headerId, wrapId, caretId) {
+          var header = document.getElementById(headerId);
+          var wrap = document.getElementById(wrapId);
+          var caret = document.getElementById(caretId);
+          if (!header || !wrap || !caret) return;
+          header.addEventListener('click', function () {
+            var open = wrap.style.display !== 'none';
+            wrap.style.display = open ? 'none' : '';
+            caret.textContent = open ? '▸' : '▾';
+          });
+        }
+        wireCollapsible('frozen-users-header', 'frozen-table-wrap', 'frozen-users-caret');
+        wireCollapsible('deleted-users-header', 'deleted-table-wrap', 'deleted-users-caret');
 
         // --- Purchases ---
         async function loadPurchases(filters) {
@@ -928,6 +1137,8 @@
         loadDashboard();
         loadPendingUsers();
         loadUsers('');
+        loadFrozenUsers();
+        loadDeletedUsers();
         loadPurchases(getFilters());
         loadUsage();
       })();

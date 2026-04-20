@@ -56,8 +56,19 @@ def get_dashboard(
     new_users_today = session.exec(
         select(func.count(User.id)).where(col(User.created_at) >= today_start)
     ).one()
+    deleted_like = col(User.email).like("deleted+%@anonymized.local")
     pending_users_count = session.exec(
-        select(func.count(User.id)).where(User.is_active == False)  # noqa: E712
+        select(func.count(User.id)).where(
+            User.is_active == False,  # noqa: E712
+            User.frozen_at.is_(None),
+            ~deleted_like,
+        )
+    ).one()
+    frozen_users_count = session.exec(
+        select(func.count(User.id)).where(User.frozen_at.is_not(None), ~deleted_like)
+    ).one()
+    deleted_users_count = session.exec(
+        select(func.count(User.id)).where(deleted_like)
     ).one()
     total_purchases = session.exec(select(func.count(Purchase.id))).one()
     purchases_today = session.exec(
@@ -70,6 +81,8 @@ def get_dashboard(
         total_purchases=total_purchases,
         purchases_today=purchases_today,
         pending_users_count=pending_users_count,
+        frozen_users_count=frozen_users_count,
+        deleted_users_count=deleted_users_count,
     )
 
 
@@ -118,19 +131,35 @@ def queue_depth(
 def list_users(
     q: Optional[str] = Query(default=None),
     is_active: Optional[bool] = Query(default=None),
+    status: Optional[str] = Query(default=None, regex="^(active|pending|frozen|deleted)$"),
     _admin: User = Depends(get_admin_user),
     session=Depends(get_session),
 ) -> List[AdminUserRead]:
+    deleted_like = col(User.email).like("deleted+%@anonymized.local")
     stmt = select(User)
     if q:
         pattern = f"%{q}%"
         stmt = stmt.where(
             col(User.email).ilike(pattern) | col(User.full_name).ilike(pattern)
         )
-    if is_active is not None:
+
+    # Status filter: active = активный и не заморожен; pending = is_active=false без заморозки
+    # и не обезличен (настоящая заявка); frozen = есть frozen_at; deleted = анонимизирован.
+    # Старый параметр is_active оставлен для совместимости внешних интеграций, но внутренний UI
+    # переключён на status.
+    if status == "active":
+        stmt = stmt.where(User.is_active == True, User.frozen_at.is_(None), ~deleted_like)  # noqa: E712
+    elif status == "pending":
+        stmt = stmt.where(User.is_active == False, User.frozen_at.is_(None), ~deleted_like)  # noqa: E712
+    elif status == "frozen":
+        stmt = stmt.where(User.frozen_at.is_not(None), ~deleted_like)
+    elif status == "deleted":
+        stmt = stmt.where(deleted_like)
+    elif is_active is not None:
         stmt = stmt.where(User.is_active == is_active)
         if is_active is False:
-            stmt = stmt.where(~col(User.email).like("deleted+%@anonymized.local"))
+            stmt = stmt.where(~deleted_like)
+
     stmt = stmt.order_by(col(User.created_at).desc())
     users = session.exec(stmt).all()
 
@@ -149,6 +178,7 @@ def list_users(
                 is_active=u.is_active,
                 created_at=u.created_at,
                 last_login_at=u.last_login_at,
+                frozen_at=u.frozen_at,
                 purchase_count=purchase_count,
             )
         )
@@ -221,6 +251,83 @@ def toggle_active(
             daemon=True,
         ).start()
 
+    return {"ok": True, "is_active": user.is_active}
+
+
+def _require_mutable_user(admin: User, user: Optional[User], user_id: int) -> User:
+    """Общие гварды: нельзя трогать себя, чужого суперадмина и уже обезличенного."""
+    if admin.id == user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Нельзя применить действие к собственному аккаунту",
+        )
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден")
+    if _is_superadmin(user) and not _is_superadmin(admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Суперадмин защищён от изменений другими администраторами",
+        )
+    if user.email.startswith("deleted+") and user.email.endswith("@anonymized.local"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Аккаунт удалён и не может быть изменён",
+        )
+    return user
+
+
+@router.patch("/users/{user_id}/freeze")
+def freeze_user(
+    user_id: int,
+    admin: User = Depends(get_admin_user),
+    session=Depends(get_session),
+):
+    """Мягкая блокировка: is_active=False + frozen_at=now + revoke sessions.
+    Данные сохраняются, действие обратимо через /unfreeze."""
+    user = session.get(User, user_id)
+    _require_mutable_user(admin, user, user_id)
+    if user.frozen_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Аккаунт уже заморожен",
+        )
+
+    user.is_active = False
+    user.frozen_at = datetime.utcnow()
+    session.add(user)
+
+    tokens = session.exec(select(SessionToken).where(SessionToken.user_id == user.id)).all()
+    for t in tokens:
+        session.delete(t)
+
+    session.commit()
+    logger.info(
+        "admin_user_frozen admin_id=%s user_id=%s sessions_revoked=%s",
+        admin.id, user.id, len(tokens),
+    )
+    return {"ok": True, "frozen_at": user.frozen_at.isoformat(), "sessions_revoked": len(tokens)}
+
+
+@router.patch("/users/{user_id}/unfreeze")
+def unfreeze_user(
+    user_id: int,
+    admin: User = Depends(get_admin_user),
+    session=Depends(get_session),
+):
+    """Снятие мягкой блокировки: is_active=True + frozen_at=None. Пароль не трогаем."""
+    user = session.get(User, user_id)
+    _require_mutable_user(admin, user, user_id)
+    if user.frozen_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Аккаунт не заморожен",
+        )
+
+    user.is_active = True
+    user.frozen_at = None
+    session.add(user)
+    session.commit()
+    logger.info("admin_user_unfrozen admin_id=%s user_id=%s", admin.id, user.id)
     return {"ok": True, "is_active": user.is_active}
 
 
