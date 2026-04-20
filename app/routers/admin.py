@@ -129,6 +129,8 @@ def list_users(
         )
     if is_active is not None:
         stmt = stmt.where(User.is_active == is_active)
+        if is_active is False:
+            stmt = stmt.where(~col(User.email).like("deleted+%@anonymized.local"))
     stmt = stmt.order_by(col(User.created_at).desc())
     users = session.exec(stmt).all()
 

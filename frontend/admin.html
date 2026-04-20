@@ -612,6 +612,12 @@
             filterUser.value = currentVal;
           } catch (err) {
             console.error('Users load error:', err);
+            var tbodyErr = document.getElementById('users-tbody');
+            if (tbodyErr) {
+              tbodyErr.innerHTML = '<tr><td colspan="9" style="color:var(--danger);padding:16px;text-align:center;">'
+                + 'Ошибка загрузки списка: ' + escapeHtml(err.message || String(err))
+                + '</td></tr>';
+            }
           }
         }
 

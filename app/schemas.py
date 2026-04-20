@@ -45,7 +45,7 @@ class AdminDashboard(BaseModel):
 
 class AdminUserRead(BaseModel):
     id: int
-    email: EmailStr
+    email: str
     full_name: Optional[str] = None
     organization: Optional[str] = None
     is_admin: bool
