@@ -4,7 +4,10 @@
 в конце каждой сессии (≤2 строки на пункт). Архитектура, фреймворки, команды
 деплоя — в `AGENTS.md` и памяти `~/.claude/projects/.../memory/zakupai_project.md`.
 
-## Current State (2026-04-20, HEAD 60df1e2)
+## Current State (2026-04-20, HEAD a551704)
+
+- **Admin list fix (a551704, на проде):** `AdminUserRead.email` — `EmailStr` → `str`, потому что `deleted+{id}@anonymized.local` (маркер soft-delete) режется email-validator'ом (`.local` — reserved TLD, RFC 6762) и валил `/admin/users` в 500 после любого удаления. Плюс: `loadUsers.catch` теперь рендерит visible error-row (раньше silent `console.error` прятал 500 за пустой таблицей и зависшей «Удаление…» кнопкой), и обезличенные исключаются из `/admin/users?is_active=false` (иначе светились в «Заявках на доступ»).
+
 
 - **Деплой:** push в `main` → GitHub Actions валидирует (`py_compile` + `node --check` + HTML smoke) и деплоит по SSH на VPS с `--no-cache` + `--force-recreate` + verify через `/build.txt` и `/api/health`. Без этих трёх проверок — push and pray.
 - **Gated registration:** новые юзеры `is_active=False`, админ подтверждает в секции «Заявки на доступ» (`/admin/users/{id}/active`). Existing users (qwadro, test-debug2) не трогали.
